@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Switchyard.Ordering.Domain</AssemblyName>
+    <RootNamespace>Switchyard.Ordering.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

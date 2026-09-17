@@ -4,9 +4,15 @@ VisualStudioVersion = 18.0.0.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Api", "src\Switchyard.Api\Switchyard.Api.csproj", "{DECF1666-797A-4896-8F32-5A9B1BD87416}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Ordering.Domain", "src\Switchyard.Ordering.Domain\Switchyard.Ordering.Domain.csproj", "{251E2AB2-FF59-46FE-B0DC-689BD8E9CC5D}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Api.Tests", "tests\Switchyard.Api.Tests\Switchyard.Api.Tests.csproj", "{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.IntegrationTests", "tests\Switchyard.IntegrationTests\Switchyard.IntegrationTests.csproj", "{ADFC8F9E-AA06-4B8B-808A-46EC6AA2E701}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Ordering.Domain.Tests", "tests\Switchyard.Ordering.Domain.Tests\Switchyard.Ordering.Domain.Tests.csproj", "{E98973EB-2459-416C-B104-7F1BF3C2A780}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Architecture.Tests", "tests\Switchyard.Architecture.Tests\Switchyard.Architecture.Tests.csproj", "{17A883BF-E706-4178-8061-C3815565C3EE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -18,6 +24,10 @@ Global
 		{DECF1666-797A-4896-8F32-5A9B1BD87416}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{DECF1666-797A-4896-8F32-5A9B1BD87416}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{DECF1666-797A-4896-8F32-5A9B1BD87416}.Release|Any CPU.Build.0 = Release|Any CPU
+		{251E2AB2-FF59-46FE-B0DC-689BD8E9CC5D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{251E2AB2-FF59-46FE-B0DC-689BD8E9CC5D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{251E2AB2-FF59-46FE-B0DC-689BD8E9CC5D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{251E2AB2-FF59-46FE-B0DC-689BD8E9CC5D}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -26,6 +36,14 @@ Global
 		{ADFC8F9E-AA06-4B8B-808A-46EC6AA2E701}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{ADFC8F9E-AA06-4B8B-808A-46EC6AA2E701}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{ADFC8F9E-AA06-4B8B-808A-46EC6AA2E701}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E98973EB-2459-416C-B104-7F1BF3C2A780}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E98973EB-2459-416C-B104-7F1BF3C2A780}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E98973EB-2459-416C-B104-7F1BF3C2A780}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E98973EB-2459-416C-B104-7F1BF3C2A780}.Release|Any CPU.Build.0 = Release|Any CPU
+		{17A883BF-E706-4178-8061-C3815565C3EE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17A883BF-E706-4178-8061-C3815565C3EE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17A883BF-E706-4178-8061-C3815565C3EE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17A883BF-E706-4178-8061-C3815565C3EE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
