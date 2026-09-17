@@ -16,3 +16,7 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = true
+# EF Core owns migration and model-snapshot code generation.
+[**/Migrations/*.cs]
+dotnet_diagnostic.CA1852.severity = none
+dotnet_diagnostic.CA1861.severity = none

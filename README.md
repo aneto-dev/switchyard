@@ -6,11 +6,23 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.1.0 Foundation - released**
+**v0.2.0 Order Management Core - in development**
 
-The first release is deliberately small. It establishes the runtime boundaries, local development setup, real PostgreSQL testing, CI and security automation before product behaviour is added.
+The v0.1 foundation is complete and v0.2 is now building the first real Ordering slice.
 
-Order management starts in v0.2.
+Implemented so far:
+
+- Order aggregate, order lines and order-time product/price snapshots
+- strongly typed order identities and Money
+- guarded order-state transitions
+- application use case for creating a pending order
+- explicit repository, unit-of-work and order-number ports
+- Ordering-owned EF Core/Npgsql persistence
+- first Ordering PostgreSQL migration and order-number sequence
+- real PostgreSQL persistence coverage
+- domain, application and architecture tests
+
+Checkout HTTP endpoints, inventory/payment integration, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
@@ -42,17 +54,18 @@ The initial bounded contexts are:
 
 See the [Architecture overview](docs/architecture/overview.md), [Context map](docs/architecture/context-map.md) and [ADRs](docs/adr/README.md).
 
-## Foundation stack
+## Stack
 
 - .NET 10 LTS and ASP.NET Core
 - Next.js 16 with TypeScript and Tailwind CSS
 - PostgreSQL 18
+- EF Core and Npgsql
 - xUnit v3 on Microsoft Testing Platform
-- Testcontainers for real PostgreSQL integration tests
-- Docker Compose for local dependencies
+- Testcontainers
+- Docker Compose
 - GitHub Actions and CodeQL
 
-Later milestones introduce Azure Service Bus, OpenTelemetry, Azure Container Apps, Terraform and Azure deployment when the corresponding behaviour exists.
+Azure Service Bus, OpenTelemetry, Azure Container Apps and Terraform are introduced when the corresponding behaviour needs them.
 
 ## Prerequisites
 
@@ -80,7 +93,7 @@ npm run build:web
 
 ## Verification
 
-Run the complete repository check with an ephemeral local PostgreSQL dependency:
+Run the repository check with an ephemeral local PostgreSQL dependency:
 
 ```powershell
 ./scripts/verify-foundation.ps1 -CleanupDockerCompose
@@ -94,9 +107,15 @@ apps/
   operations-web/
 src/
   Switchyard.Api/
+  Switchyard.Ordering.Domain/
+  Switchyard.Ordering.Application/
+  Switchyard.Ordering.Infrastructure/
 tests/
   Switchyard.Api.Tests/
   Switchyard.IntegrationTests/
+  Switchyard.Ordering.Domain.Tests/
+  Switchyard.Ordering.Application.Tests/
+  Switchyard.Architecture.Tests/
 infrastructure/
   local/
 docs/
@@ -112,7 +131,7 @@ More projects are added only when they contain real implementation.
 ## Roadmap
 
 - v0.1 - Engineering foundation - complete
-- v0.2 - Order Management Core - next
+- v0.2 - Order Management Core - in progress
 - v0.3 - Inventory Reservation
 - v0.4 - Payments and provider simulation
 - v0.5 - Messaging, outbox/inbox and durable placement workflow

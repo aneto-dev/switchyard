@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Ordering.Domain"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Ordering.Application", "src\Switchyard.Ordering.Application\Switchyard.Ordering.Application.csproj", "{A9C07BFB-243A-44E7-9416-7AD9A7600B6D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Ordering.Infrastructure", "src\Switchyard.Ordering.Infrastructure\Switchyard.Ordering.Infrastructure.csproj", "{084B5488-7F7E-439B-9668-AE15F5075C60}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Api.Tests", "tests\Switchyard.Api.Tests\Switchyard.Api.Tests.csproj", "{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.IntegrationTests", "tests\Switchyard.IntegrationTests\Switchyard.IntegrationTests.csproj", "{ADFC8F9E-AA06-4B8B-808A-46EC6AA2E701}"
@@ -36,6 +38,10 @@ Global
 		{A9C07BFB-243A-44E7-9416-7AD9A7600B6D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A9C07BFB-243A-44E7-9416-7AD9A7600B6D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A9C07BFB-243A-44E7-9416-7AD9A7600B6D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{084B5488-7F7E-439B-9668-AE15F5075C60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{084B5488-7F7E-439B-9668-AE15F5075C60}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{084B5488-7F7E-439B-9668-AE15F5075C60}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{084B5488-7F7E-439B-9668-AE15F5075C60}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5A069D5C-8EFD-4A5E-8ABB-A6477C604E49}.Release|Any CPU.ActiveCfg = Release|Any CPU

@@ -1,6 +1,7 @@
 using System.Reflection;
 using Switchyard.Ordering.Application.Orders;
 using Switchyard.Ordering.Domain.Orders;
+using Switchyard.Ordering.Infrastructure.Persistence;
 using Xunit;
 
 namespace Switchyard.Architecture.Tests;
@@ -34,6 +35,20 @@ public sealed class OrderingBoundaryTests
             "Npgsql",
             "Switchyard.Api",
             "Switchyard.Ordering.Infrastructure");
+    }
+
+    [Fact]
+    public void OrderingInfrastructureReferencesApplicationAndDomainButNotApi()
+    {
+        var infrastructureAssembly = typeof(OrderingDbContext).Assembly;
+        var references = GetReferenceNames(infrastructureAssembly);
+
+        Assert.Contains("Switchyard.Ordering.Application", references);
+        Assert.Contains("Switchyard.Ordering.Domain", references);
+        AssertDoesNotReference(
+            infrastructureAssembly,
+            "Microsoft.AspNetCore",
+            "Switchyard.Api");
     }
 
     private static void AssertDoesNotReference(Assembly assembly, params string[] forbiddenPrefixes)

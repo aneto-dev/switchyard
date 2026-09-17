@@ -8,13 +8,14 @@ public sealed class Order
         OrderId id,
         OrderNumber orderNumber,
         IReadOnlyList<OrderLine> lines,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        OrderStatus status)
     {
         Id = id;
         OrderNumber = orderNumber;
         _lines = lines;
         CreatedAtUtc = createdAtUtc.ToUniversalTime();
-        Status = OrderStatus.Pending;
+        Status = status;
         Total = CalculateTotal(lines);
     }
 
@@ -38,6 +39,56 @@ public sealed class Order
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentNullException.ThrowIfNull(orderNumber);
+
+        var materializedLines = MaterializeAndValidateLines(lines);
+
+        return new Order(
+            id,
+            orderNumber,
+            Array.AsReadOnly(materializedLines),
+            createdAtUtc,
+            OrderStatus.Pending);
+    }
+
+    public static Order Rehydrate(
+        OrderId id,
+        OrderNumber orderNumber,
+        IEnumerable<OrderLine> lines,
+        DateTimeOffset createdAtUtc,
+        OrderStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        ArgumentNullException.ThrowIfNull(orderNumber);
+
+        if (!Enum.IsDefined<OrderStatus>(status))
+        {
+            throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown order status.");
+        }
+
+        var materializedLines = MaterializeAndValidateLines(lines);
+
+        return new Order(
+            id,
+            orderNumber,
+            Array.AsReadOnly(materializedLines),
+            createdAtUtc,
+            status);
+    }
+
+    public void Confirm()
+    {
+        EnsurePending("confirm");
+        Status = OrderStatus.Confirmed;
+    }
+
+    public void Fail()
+    {
+        EnsurePending("fail");
+        Status = OrderStatus.Failed;
+    }
+
+    private static OrderLine[] MaterializeAndValidateLines(IEnumerable<OrderLine> lines)
+    {
         ArgumentNullException.ThrowIfNull(lines);
 
         var materializedLines = lines.ToArray();
@@ -68,19 +119,7 @@ public sealed class Order
             throw new ArgumentException("All order lines must use the same currency.", nameof(lines));
         }
 
-        return new Order(id, orderNumber, Array.AsReadOnly(materializedLines), createdAtUtc);
-    }
-
-    public void Confirm()
-    {
-        EnsurePending("confirm");
-        Status = OrderStatus.Confirmed;
-    }
-
-    public void Fail()
-    {
-        EnsurePending("fail");
-        Status = OrderStatus.Failed;
+        return materializedLines;
     }
 
     private static Money CalculateTotal(IReadOnlyList<OrderLine> lines)

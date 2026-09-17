@@ -4,6 +4,14 @@ All notable Switchyard changes will be recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- First Ordering domain slice with the Order aggregate and order lines.
+- Application use case for creating pending orders through explicit ports.
+- Ordering-owned PostgreSQL persistence through EF Core and Npgsql.
+- Initial Ordering schema migration and order-number sequence.
+- Domain, application, architecture and real PostgreSQL persistence tests.
+
 ## [0.1.0] - 2026-09-16
 
 ### Added
