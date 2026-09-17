@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Ordering.Domain\Switchyard.Ordering.Domain.csproj" />
+  </ItemGroup>
+</Project>
