@@ -20,9 +20,10 @@ Implemented so far:
 - Ordering-owned EF Core/Npgsql persistence
 - first Ordering PostgreSQL migration and order-number sequence
 - real PostgreSQL persistence coverage
-- domain, application and architecture tests
+- HTTP endpoints for creating and reading orders
+- domain, application, API and architecture tests
 
-Checkout HTTP endpoints, inventory/payment integration, reliable messaging and the durable order-placement workflow are still to come.
+Inventory/payment integration, reliable messaging, idempotent checkout acceptance and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
@@ -83,6 +84,7 @@ From a clean clone at the repository root:
 Copy-Item .env.example .env
 npm ci
 docker compose -f infrastructure/local/compose.yml up -d postgres
+./scripts/apply-ordering-migrations.ps1
 dotnet restore Switchyard.sln
 dotnet build Switchyard.sln -c Release --no-restore
 dotnet test Switchyard.sln -c Release --no-build
@@ -91,6 +93,32 @@ npm run typecheck
 npm run build:web
 ```
 
+## Ordering API
+
+Create an order:
+
+```http
+POST /api/orders
+Content-Type: application/json
+
+{
+  "lines": [
+    {
+      "skuCode": "BIKE-001",
+      "productName": "Road Bike",
+      "quantity": 1,
+      "unitPriceAmount": 1299.99,
+      "currency": "GBP"
+    }
+  ]
+}
+```
+
+A successful request returns `201 Created` with a `Location` header for `GET /api/orders/{orderId}`.
+
+Database migrations remain explicit deployment work. The API does not migrate the database on startup.
+
+`/health/live` stays process-only while `/health/ready` checks the Ordering PostgreSQL dependency.
 ## Verification
 
 Run the repository check with an ephemeral local PostgreSQL dependency:
