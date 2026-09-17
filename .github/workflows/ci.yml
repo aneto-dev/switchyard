@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET build, tests and PostgreSQL
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Switchyard.sln
+
+      - name: Verify formatting
+        run: dotnet format Switchyard.sln --verify-no-changes --no-restore
+
+      - name: Build
+        run: dotnet build Switchyard.sln -c Release --no-restore
+
+      - name: Validate local Compose
+        run: docker compose -f infrastructure/local/compose.yml config --quiet
+
+      - name: Start local PostgreSQL
+        run: docker compose -f infrastructure/local/compose.yml up -d postgres
+
+      - name: Verify local PostgreSQL health
+        shell: bash
+        run: |
+          container_id="$(docker compose -f infrastructure/local/compose.yml ps -q postgres)"
+          for attempt in {1..30}; do
+            status="$(docker inspect --format='{{.State.Health.Status}}' "$container_id")"
+            if [ "$status" = "healthy" ]; then
+              echo "PostgreSQL is healthy."
+              exit 0
+            fi
+            echo "Waiting for PostgreSQL healthcheck ($attempt/30): $status"
+            sleep 2
+          done
+          docker compose -f infrastructure/local/compose.yml logs postgres
+          exit 1
+
+      - name: Test
+        run: dotnet test Switchyard.sln -c Release --no-build
+
+      - name: Upload failed test results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dotnet-test-results
+          path: '**/TestResults/**'
+          if-no-files-found: ignore
+
+      - name: Stop local PostgreSQL
+        if: always()
+        run: docker compose -f infrastructure/local/compose.yml down -v
+
+  web:
+    name: Web lint, typecheck and build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build:web

@@ -1,0 +1,19 @@
+{
+    "name":  "switchyard",
+    "version":  "0.1.0",
+    "private":  true,
+    "workspaces":  [
+                       "apps/customer-web",
+                       "apps/operations-web"
+                   ],
+    "engines":  {
+                    "node":  "\u003e=24 \u003c25"
+                },
+    "scripts":  {
+                    "dev:customer":  "npm run dev --workspace @switchyard/customer-web",
+                    "dev:operations":  "npm run dev --workspace @switchyard/operations-web",
+                    "lint":  "npm run lint --workspaces --if-present",
+                    "typecheck":  "npm run typecheck --workspaces --if-present",
+                    "build:web":  "npm run build --workspaces --if-present"
+                }
+}
