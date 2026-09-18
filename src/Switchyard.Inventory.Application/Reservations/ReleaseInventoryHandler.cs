@@ -23,6 +23,13 @@ public sealed class ReleaseInventoryHandler
             throw new ArgumentException("Reservation ID cannot be empty.", nameof(command));
         }
 
+        if (!Enum.IsDefined(command.Reason))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(command), command.Reason,
+                "Reservation release reason is not supported.");
+        }
+
         var attemptedAtUtc = _timeProvider.GetUtcNow();
         var outcome = await _lifecycleStore.ReleaseAsync(
             command.ReservationId, command.Reason,

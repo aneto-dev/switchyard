@@ -27,6 +27,23 @@ public sealed class InventoryReservationLifecycleHandlerTests
     }
 
     [Fact]
+    public async Task ReleaseRejectsUnsupportedReasonBeforeCallingStore()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var store = new RecordingLifecycleStore();
+        var handler = new ReleaseInventoryHandler(store, new FixedTimeProvider(DateTimeOffset.UnixEpoch));
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            () => handler.HandleAsync(
+                new ReleaseInventoryCommand(Guid.NewGuid(), (StockReservationReleaseReason)999),
+                cancellationToken));
+
+        Assert.Null(store.ReservationId);
+        Assert.Null(store.ReleaseReason);
+        Assert.Null(store.TransitionedAtUtc);
+    }
+
+    [Fact]
     public async Task ExpiryUsesCurrentTimeAndBatchSize()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
