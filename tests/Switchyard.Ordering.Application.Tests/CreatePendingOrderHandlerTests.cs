@@ -11,56 +11,105 @@ public sealed class CreatePendingOrderHandlerTests
     public async Task CreatesAndPersistsPendingOrderFromOrderTimeSnapshots()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var repository = new RecordingOrderRepository();
+        var orderRepository = new RecordingOrderRepository();
+        var requestRepository = new RecordingOrderRequestRepository();
         var unitOfWork = new RecordingUnitOfWork();
+        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
         var now = new DateTimeOffset(2026, 9, 16, 19, 45, 0, TimeSpan.Zero);
-        var handler = new CreatePendingOrderHandler(
-            repository,
-            unitOfWork,
-            new FixedOrderNumberGenerator(new OrderNumber("SW-00100000")),
-            new FixedTimeProvider(now));
+        var handler = CreateHandler(
+            orderRepository, requestRepository, unitOfWork, numberGenerator, now);
 
         var result = await handler.HandleAsync(
-            new CreatePendingOrderCommand(
-                new[]
-                {
-                    new CreatePendingOrderLine("BIKE-001", "Road Bike", 2, 499.99m, "gbp")
-                }),
+            CreateCommand("checkout-001", quantity: 2),
             cancellationToken);
 
-        Assert.NotNull(repository.AddedOrder);
-        Assert.Equal(OrderStatus.Pending, repository.AddedOrder!.Status);
-        Assert.Equal("SW-00100000", repository.AddedOrder.OrderNumber.Value);
-        Assert.Equal(now, repository.AddedOrder.CreatedAtUtc);
-        Assert.Equal("BIKE-001", repository.AddedOrder.Lines[0].Product.SkuCode.Value);
-        Assert.Equal("Road Bike", repository.AddedOrder.Lines[0].Product.ProductName);
-        Assert.Equal(2, repository.AddedOrder.Lines[0].Quantity);
-        Assert.Equal(499.99m, repository.AddedOrder.Lines[0].UnitPrice.Amount);
-        Assert.Equal("GBP", repository.AddedOrder.Lines[0].UnitPrice.Currency);
-        Assert.Equal(999.98m, repository.AddedOrder.Total.Amount);
+        Assert.NotNull(orderRepository.AddedOrder);
+        Assert.Equal(OrderStatus.Pending, orderRepository.AddedOrder!.Status);
+        Assert.Equal("SW-00100000", orderRepository.AddedOrder.OrderNumber.Value);
+        Assert.Equal(now, orderRepository.AddedOrder.CreatedAtUtc);
+        Assert.Equal("BIKE-001", orderRepository.AddedOrder.Lines[0].Product.SkuCode.Value);
+        Assert.Equal("Road Bike", orderRepository.AddedOrder.Lines[0].Product.ProductName);
+        Assert.Equal(2, orderRepository.AddedOrder.Lines[0].Quantity);
+        Assert.Equal(499.99m, orderRepository.AddedOrder.Lines[0].UnitPrice.Amount);
+        Assert.Equal("GBP", orderRepository.AddedOrder.Lines[0].UnitPrice.Currency);
+        Assert.Equal(999.98m, orderRepository.AddedOrder.Total.Amount);
+        Assert.NotNull(requestRepository.AcceptedRequest);
+        Assert.Equal("checkout-001", requestRepository.AcceptedRequest!.IdempotencyKey);
+        Assert.Equal(orderRepository.AddedOrder.Id, requestRepository.AcceptedRequest.OrderId);
+        Assert.Equal(64, requestRepository.AcceptedRequest.RequestFingerprint.Length);
         Assert.Equal(1, unitOfWork.SaveCount);
+        Assert.Equal(1, numberGenerator.CallCount);
 
-        Assert.Equal(repository.AddedOrder.Id.Value, result.OrderId);
+        Assert.Equal(orderRepository.AddedOrder.Id.Value, result.OrderId);
         Assert.Equal("SW-00100000", result.OrderNumber);
         Assert.Equal("Pending", result.Status);
         Assert.Equal(999.98m, result.TotalAmount);
         Assert.Equal("GBP", result.Currency);
         Assert.Equal(now, result.CreatedAtUtc);
+        Assert.False(result.Replayed);
+    }
+
+    [Fact]
+    public async Task ReplaysSameRequestWithoutCreatingAnotherOrder()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var orderRepository = new RecordingOrderRepository();
+        var requestRepository = new RecordingOrderRequestRepository();
+        var unitOfWork = new RecordingUnitOfWork();
+        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
+        var handler = CreateHandler(
+            orderRepository, requestRepository, unitOfWork, numberGenerator, DateTimeOffset.UnixEpoch);
+        var command = CreateCommand("checkout-retry");
+
+        var created = await handler.HandleAsync(command, cancellationToken);
+        var replayed = await handler.HandleAsync(command, cancellationToken);
+
+        Assert.Equal(created.OrderId, replayed.OrderId);
+        Assert.Equal(created.OrderNumber, replayed.OrderNumber);
+        Assert.True(replayed.Replayed);
+        Assert.Equal(1, unitOfWork.SaveCount);
+        Assert.Equal(1, numberGenerator.CallCount);
+        Assert.Equal(1, orderRepository.AddCount);
+        Assert.Equal(1, requestRepository.AddCount);
+    }
+
+    [Fact]
+    public async Task RejectsDifferentRequestUsingSameIdempotencyKey()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var orderRepository = new RecordingOrderRepository();
+        var requestRepository = new RecordingOrderRequestRepository();
+        var unitOfWork = new RecordingUnitOfWork();
+        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
+        var handler = CreateHandler(
+            orderRepository, requestRepository, unitOfWork, numberGenerator, DateTimeOffset.UnixEpoch);
+
+        await handler.HandleAsync(CreateCommand("checkout-conflict"), cancellationToken);
+
+        await Assert.ThrowsAsync<OrderRequestConflictException>(
+            () => handler.HandleAsync(
+                CreateCommand("checkout-conflict", quantity: 3),
+                cancellationToken));
+
+        Assert.Equal(1, unitOfWork.SaveCount);
+        Assert.Equal(1, numberGenerator.CallCount);
+        Assert.Equal(1, orderRepository.AddCount);
+        Assert.Equal(1, requestRepository.AddCount);
     }
 
     [Fact]
     public async Task RejectsInvalidLineBeforePersistence()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var repository = new RecordingOrderRepository();
+        var orderRepository = new RecordingOrderRepository();
+        var requestRepository = new RecordingOrderRequestRepository();
         var unitOfWork = new RecordingUnitOfWork();
-        var handler = new CreatePendingOrderHandler(
-            repository,
-            unitOfWork,
-            new FixedOrderNumberGenerator(new OrderNumber("SW-00100001")),
-            new FixedTimeProvider(DateTimeOffset.UnixEpoch));
+        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100001"));
+        var handler = CreateHandler(
+            orderRepository, requestRepository, unitOfWork, numberGenerator, DateTimeOffset.UnixEpoch);
 
         var command = new CreatePendingOrderCommand(
+            "checkout-invalid",
             new[]
             {
                 new CreatePendingOrderLine("BIKE-001", "Road Bike", 0, 499.99m, "GBP")
@@ -69,18 +118,48 @@ public sealed class CreatePendingOrderHandlerTests
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             () => handler.HandleAsync(command, cancellationToken));
 
-        Assert.Null(repository.AddedOrder);
+        Assert.Null(orderRepository.AddedOrder);
+        Assert.Null(requestRepository.AcceptedRequest);
         Assert.Equal(0, unitOfWork.SaveCount);
+        Assert.Equal(0, numberGenerator.CallCount);
+    }
+
+    private static CreatePendingOrderHandler CreateHandler(
+        RecordingOrderRepository orderRepository,
+        RecordingOrderRequestRepository requestRepository,
+        RecordingUnitOfWork unitOfWork,
+        FixedOrderNumberGenerator numberGenerator,
+        DateTimeOffset now)
+    {
+        return new CreatePendingOrderHandler(
+            orderRepository,
+            requestRepository,
+            unitOfWork,
+            numberGenerator,
+            new FixedTimeProvider(now));
+    }
+
+    private static CreatePendingOrderCommand CreateCommand(string idempotencyKey, int quantity = 1)
+    {
+        return new CreatePendingOrderCommand(
+            idempotencyKey,
+            new[]
+            {
+                new CreatePendingOrderLine("BIKE-001", "Road Bike", quantity, 499.99m, "gbp")
+            });
     }
 
     private sealed class RecordingOrderRepository : IOrderRepository
     {
         public Order? AddedOrder { get; private set; }
 
+        public int AddCount { get; private set; }
+
         public Task AddAsync(Order order, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             AddedOrder = order;
+            AddCount++;
             return Task.CompletedTask;
         }
 
@@ -92,6 +171,32 @@ public sealed class CreatePendingOrderHandlerTests
                 AddedOrder?.Id == orderId
                     ? AddedOrder
                     : null);
+        }
+    }
+
+    private sealed class RecordingOrderRequestRepository : IOrderRequestRepository
+    {
+        public AcceptedOrderRequest? AcceptedRequest { get; private set; }
+
+        public int AddCount { get; private set; }
+
+        public Task<AcceptedOrderRequest?> GetByIdempotencyKeyAsync(
+            string idempotencyKey, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                AcceptedRequest?.IdempotencyKey == idempotencyKey
+                    ? AcceptedRequest
+                    : null);
+        }
+
+        public Task AddAsync(AcceptedOrderRequest request, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AcceptedRequest = request;
+            AddCount++;
+            return Task.CompletedTask;
         }
     }
 
@@ -116,9 +221,12 @@ public sealed class CreatePendingOrderHandlerTests
             _orderNumber = orderNumber;
         }
 
+        public int CallCount { get; private set; }
+
         public Task<OrderNumber> NextAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            CallCount++;
             return Task.FromResult(_orderNumber);
         }
     }

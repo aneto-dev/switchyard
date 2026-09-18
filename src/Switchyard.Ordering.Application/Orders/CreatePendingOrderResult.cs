@@ -6,4 +6,5 @@ public sealed record CreatePendingOrderResult(
     string Status,
     decimal TotalAmount,
     string Currency,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    bool Replayed);

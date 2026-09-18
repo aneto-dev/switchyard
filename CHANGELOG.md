@@ -12,6 +12,7 @@ All notable Switchyard changes will be recorded here.
 - Initial Ordering schema migration and order-number sequence.
 - Domain, application, architecture and real PostgreSQL persistence tests.
 - Ordering HTTP endpoints for creating and reading orders.
+- Durable idempotent order acceptance with retry and concurrent-duplicate coverage.
 
 ## [0.1.0] - 2026-09-16
 

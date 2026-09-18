@@ -33,6 +33,7 @@ builder.Services.AddDbContext<OrderingDbContext>((serviceProvider, options) =>
 });
 
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
+builder.Services.AddScoped<IOrderRequestRepository, EfOrderRequestRepository>();
 builder.Services.AddScoped<IOrderingUnitOfWork, EfOrderingUnitOfWork>();
 builder.Services.AddScoped<IOrderNumberGenerator, PostgresOrderNumberGenerator>();
 builder.Services.AddScoped<CreatePendingOrderHandler>();
