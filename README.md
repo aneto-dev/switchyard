@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.2.0 Order Management Core - in development**
+**v0.3.0 Inventory Reservation - in development**
 
-The v0.1 foundation is complete and v0.2 is now building the first real Ordering slice.
+The v0.2 Ordering core is complete. v0.3 now introduces the first Inventory reservation slice and the concurrency rules needed before payment authorisation.
 
 Implemented so far:
 
@@ -22,9 +22,13 @@ Implemented so far:
 - real PostgreSQL persistence coverage
 - HTTP endpoints for creating and reading orders
 - idempotent order acceptance backed by PostgreSQL
+- Inventory stock and reservation domain model
+- durable reservation request idempotency
+- database-enforced last-stock concurrency protection
+- configurable reservation expiry timestamp
 - domain, application, API and architecture tests
 
-Inventory/payment integration, reliable messaging and the durable order-placement workflow are still to come.
+Reservation release/expiry execution, payment integration, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
@@ -86,6 +90,7 @@ Copy-Item .env.example .env
 npm ci
 docker compose -f infrastructure/local/compose.yml up -d postgres
 ./scripts/apply-ordering-migrations.ps1
+./scripts/apply-inventory-migrations.ps1
 dotnet restore Switchyard.sln
 dotnet build Switchyard.sln -c Release --no-restore
 dotnet test Switchyard.sln -c Release --no-build
@@ -137,6 +142,9 @@ apps/
   operations-web/
 src/
   Switchyard.Api/
+  Switchyard.Inventory.Domain/
+  Switchyard.Inventory.Application/
+  Switchyard.Inventory.Infrastructure/
   Switchyard.Ordering.Domain/
   Switchyard.Ordering.Application/
   Switchyard.Ordering.Infrastructure/
@@ -161,8 +169,8 @@ More projects are added only when they contain real implementation.
 ## Roadmap
 
 - v0.1 - Engineering foundation - complete
-- v0.2 - Order Management Core - in progress
-- v0.3 - Inventory Reservation
+- v0.2 - Order Management Core - complete
+- v0.3 - Inventory Reservation - in progress
 - v0.4 - Payments and provider simulation
 - v0.5 - Messaging, outbox/inbox and durable placement workflow
 - v0.6 - Fulfilment and cancellation

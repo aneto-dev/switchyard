@@ -13,6 +13,8 @@ All notable Switchyard changes will be recorded here.
 - Domain, application, architecture and real PostgreSQL persistence tests.
 - Ordering HTTP endpoints for creating and reading orders.
 - Durable idempotent order acceptance with retry and concurrent-duplicate coverage.
+- Inventory stock and reservation domain model.
+- Durable reservation idempotency and last-stock concurrency protection.
 
 ## [0.1.0] - 2026-09-16
 

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Switchyard.Inventory.Domain</AssemblyName>
+    <RootNamespace>Switchyard.Inventory.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>
