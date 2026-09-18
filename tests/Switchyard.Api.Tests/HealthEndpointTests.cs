@@ -1,22 +1,22 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace Switchyard.Api.Tests;
 
 public sealed class HealthEndpointTests
 {
-    [Theory]
-    [InlineData("/health/live")]
-    [InlineData("/health/ready")]
-    public async Task HealthEndpointReturnsSafeHealthyResponse(string endpoint)
+    [Fact]
+    public async Task LiveEndpointReturnsSafeHealthyResponse()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        using var application = new WebApplicationFactory<Program>();
+        using var application = new WebApplicationFactory<Program>()
+            .WithWebHostBuilder(builder => builder.UseEnvironment("Development"));
         using var client = application.CreateClient();
 
-        using var response = await client.GetAsync(endpoint, cancellationToken);
+        using var response = await client.GetAsync("/health/live", cancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 

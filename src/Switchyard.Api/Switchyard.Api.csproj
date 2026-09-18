@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Ordering.Application\Switchyard.Ordering.Application.csproj" />
+    <ProjectReference Include="..\Switchyard.Ordering.Infrastructure\Switchyard.Ordering.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

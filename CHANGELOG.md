@@ -11,6 +11,7 @@ All notable Switchyard changes will be recorded here.
 - Ordering-owned PostgreSQL persistence through EF Core and Npgsql.
 - Initial Ordering schema migration and order-number sequence.
 - Domain, application, architecture and real PostgreSQL persistence tests.
+- Ordering HTTP endpoints for creating and reading orders.
 
 ## [0.1.0] - 2026-09-16
 
