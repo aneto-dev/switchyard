@@ -11,13 +11,14 @@ public sealed class OrderingDbContext : DbContext
 
     internal DbSet<OrderRecord> Orders => Set<OrderRecord>();
 
+    internal DbSet<OrderRequestRecord> OrderRequests => Set<OrderRequestRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
 
-        modelBuilder
-            .HasSequence<long>("order_number_sequence", "ordering")
-            .StartsAt(100000L);
+        modelBuilder.HasSequence<long>("order_number_sequence", "ordering")
+                    .StartsAt(100000L);
 
         var order = modelBuilder.Entity<OrderRecord>();
         order.ToTable(
@@ -62,8 +63,41 @@ public sealed class OrderingDbContext : DbContext
             .HasDatabaseName("ux_order_lines_order_id_position");
 
         order.HasMany(record => record.Lines)
-            .WithOne()
-            .HasForeignKey(record => record.OrderId)
-            .OnDelete(DeleteBehavior.Cascade);
+             .WithOne()
+             .HasForeignKey(record => record.OrderId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+        var orderRequest = modelBuilder.Entity<OrderRequestRecord>();
+        orderRequest.ToTable(
+            "order_requests",
+            "ordering",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_order_requests_idempotency_key_not_blank",
+                    "btrim(idempotency_key) <> ''");
+                table.HasCheckConstraint(
+                    "ck_order_requests_request_fingerprint",
+                    "char_length(request_fingerprint) = 64");
+            });
+        orderRequest.HasKey(record => record.IdempotencyKey).HasName("pk_order_requests");
+        orderRequest.Property(record => record.IdempotencyKey)
+                    .HasColumnName("idempotency_key")
+                    .HasMaxLength(128);
+        orderRequest.Property(record => record.RequestFingerprint)
+                    .HasColumnName("request_fingerprint")
+                    .HasMaxLength(64)
+                    .IsRequired();
+        orderRequest.Property(record => record.OrderId).HasColumnName("order_id");
+        orderRequest.Property(record => record.AcceptedAtUtc)
+                    .HasColumnName("accepted_at_utc")
+                    .IsRequired();
+        orderRequest.HasIndex(record => record.OrderId)
+                    .IsUnique()
+                    .HasDatabaseName("ux_order_requests_order_id");
+        orderRequest.HasOne<OrderRecord>()
+                    .WithOne()
+                    .HasForeignKey<OrderRequestRecord>(record => record.OrderId)
+                    .OnDelete(DeleteBehavior.Restrict);
     }
 }

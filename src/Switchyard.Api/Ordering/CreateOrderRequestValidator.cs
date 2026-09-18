@@ -2,11 +2,16 @@ namespace Switchyard.Api.Ordering;
 
 internal static class CreateOrderRequestValidator
 {
-    public static Dictionary<string, string[]> Validate(CreateOrderRequest request)
+    private const int MaxIdempotencyKeyLength = 128;
+
+    public static Dictionary<string, string[]> Validate(
+        CreateOrderRequest request, string? idempotencyKey)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         var errors = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        ValidateIdempotencyKey(errors, idempotencyKey);
 
         if (request.Lines is null || request.Lines.Count == 0)
         {
@@ -71,18 +76,37 @@ internal static class CreateOrderRequestValidator
         return ToValidationProblem(errors);
     }
 
+    private static void ValidateIdempotencyKey(
+        Dictionary<string, List<string>> errors, string? idempotencyKey)
+    {
+        if (string.IsNullOrWhiteSpace(idempotencyKey))
+        {
+            AddError(errors, "idempotencyKey", "Exactly one Idempotency-Key header is required.");
+            return;
+        }
+
+        if (idempotencyKey.Trim().Length > MaxIdempotencyKeyLength)
+        {
+            AddError(
+                errors,
+                "idempotencyKey",
+                $"Idempotency-Key cannot exceed {MaxIdempotencyKeyLength} characters.");
+        }
+    }
+
     private static void AddError(Dictionary<string, List<string>> errors, string key, string message)
     {
         if (!errors.TryGetValue(key, out var messages))
         {
-            messages = new List<string>();
+            messages = [];
             errors[key] = messages;
         }
 
         messages.Add(message);
     }
 
-    private static Dictionary<string, string[]> ToValidationProblem(Dictionary<string, List<string>> errors)
+    private static Dictionary<string, string[]> ToValidationProblem(
+        Dictionary<string, List<string>> errors)
     {
         return errors.ToDictionary(pair => pair.Key, pair => pair.Value.ToArray(), StringComparer.Ordinal);
     }

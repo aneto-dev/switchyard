@@ -21,9 +21,10 @@ Implemented so far:
 - first Ordering PostgreSQL migration and order-number sequence
 - real PostgreSQL persistence coverage
 - HTTP endpoints for creating and reading orders
+- idempotent order acceptance backed by PostgreSQL
 - domain, application, API and architecture tests
 
-Inventory/payment integration, reliable messaging, idempotent checkout acceptance and the durable order-placement workflow are still to come.
+Inventory/payment integration, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
@@ -100,6 +101,7 @@ Create an order:
 ```http
 POST /api/orders
 Content-Type: application/json
+Idempotency-Key: checkout-20260918-001
 
 {
   "lines": [
@@ -114,7 +116,7 @@ Content-Type: application/json
 }
 ```
 
-A successful request returns `201 Created` with a `Location` header for `GET /api/orders/{orderId}`.
+The first successful request returns `201 Created` with a `Location` header for `GET /api/orders/{orderId}`. Repeating the same request with the same `Idempotency-Key` returns `200 OK` with the same order. Reusing that key with a different request returns `409 Conflict`.
 
 Database migrations remain explicit deployment work. The API does not migrate the database on startup.
 

@@ -32,6 +32,9 @@ public sealed class OrderingPersistenceTests
                 .GetAppliedMigrationsAsync(cancellationToken);
 
             Assert.Contains("20260916210000_InitialOrdering", appliedMigrations);
+            Assert.Contains(
+                appliedMigrations,
+                migration => migration.EndsWith("_AddOrderRequestIdempotency", StringComparison.Ordinal));
         }
 
         Order persistedOrder;
