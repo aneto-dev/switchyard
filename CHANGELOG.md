@@ -15,6 +15,8 @@ All notable Switchyard changes will be recorded here.
 - Durable idempotent order acceptance with retry and concurrent-duplicate coverage.
 - Inventory stock and reservation domain model.
 - Durable reservation idempotency and last-stock concurrency protection.
+- Idempotent reservation release and batched expiry execution.
+- Release/expiry race protection that returns reserved stock once.
 
 ## [0.1.0] - 2026-09-16
 

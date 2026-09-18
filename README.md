@@ -26,9 +26,12 @@ Implemented so far:
 - durable reservation request idempotency
 - database-enforced last-stock concurrency protection
 - configurable reservation expiry timestamp
+- idempotent reservation release for compensation and cancellation
+- batched expiry execution with row locking and skip-locked processing
+- release/expiry race protection so reserved stock is returned once
 - domain, application, API and architecture tests
 
-Reservation release/expiry execution, payment integration, reliable messaging and the durable order-placement workflow are still to come.
+Payment integration, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
