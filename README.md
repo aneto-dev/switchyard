@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.4.0 Payments - complete**
+**v0.5.0 Reliable Messaging - in development**
 
-The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 adds durable payment authorisation, capture and void plus provider-truth reconciliation for uncertain authorisation and settlement outcomes.
+The v0.2 Ordering core, v0.3 Inventory reservation lifecycle and v0.4 Payments milestone are complete. v0.5 starts with the transactional messaging foundation used by the durable order-placement workflow.
 
 Implemented so far:
 
@@ -42,9 +42,14 @@ Implemented so far:
 - provider-truth reconciliation for uncertain capture and void outcomes
 - durable settlement reconciliation tracking with Succeeded, NotApplied and still-unknown outcomes
 - concurrency-safe reconciliation that preserves the first definite provider truth
+- versioned OrderAccepted integration message written atomically with order acceptance
+- durable Ordering outbox with stable message, correlation and causation metadata
+- leased PostgreSQL outbox claims using FOR UPDATE SKIP LOCKED
+- at-least-once batch dispatcher with durable retry scheduling and lease recovery
+- commit/publish crash-window coverage that makes duplicate delivery an explicit design constraint
 - domain, application, API and architecture tests
 
-The next milestone is v0.5, adding reliable messaging, outbox/inbox delivery and the durable order-placement workflow.
+Inbox/idempotent consumer handling, Azure Service Bus transport, the Worker host and the durable order-placement process manager are still to come in v0.5.
 
 ## Architecture direction
 
@@ -194,7 +199,7 @@ More projects are added only when they contain real implementation.
 - v0.2 - Order Management Core - complete
 - v0.3 - Inventory Reservation - complete
 - v0.4 - Payments and provider simulation - complete
-- v0.5 - Messaging, outbox/inbox and durable placement workflow
+- v0.5 - Messaging, outbox/inbox and durable placement workflow - in progress
 - v0.6 - Fulfilment and cancellation
 - v0.7 - Returns and refunds
 - v0.8 - Customer and Operations product experience

@@ -94,6 +94,8 @@ public sealed class OrderingEndpointTests
             postgres.GetConnectionString(), "ordering.orders", cancellationToken));
         Assert.Equal(1, await CountRowsAsync(
             postgres.GetConnectionString(), "ordering.order_requests", cancellationToken));
+        Assert.Equal(1, await CountRowsAsync(
+            postgres.GetConnectionString(), "ordering.outbox_messages", cancellationToken));
 
         using var missingResponse = await client.GetAsync(
             $"/api/orders/{Guid.NewGuid():D}", cancellationToken);
@@ -140,6 +142,8 @@ public sealed class OrderingEndpointTests
                 postgres.GetConnectionString(), "ordering.orders", cancellationToken));
             Assert.Equal(1, await CountRowsAsync(
                 postgres.GetConnectionString(), "ordering.order_requests", cancellationToken));
+            Assert.Equal(1, await CountRowsAsync(
+                postgres.GetConnectionString(), "ordering.outbox_messages", cancellationToken));
         }
         finally
         {

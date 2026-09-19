@@ -40,6 +40,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Payments.Domain.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Payments.Application.Tests", "tests\Switchyard.Payments.Application.Tests\Switchyard.Payments.Application.Tests.csproj", "{A1F35031-7D41-4D08-BAC9-63F366E81A05}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Messaging", "src\Switchyard.Messaging\Switchyard.Messaging.csproj", "{198F5D23-D0A4-4FB6-81BE-FB9CAC58C842}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Messaging.Tests", "tests\Switchyard.Messaging.Tests\Switchyard.Messaging.Tests.csproj", "{827D386C-9239-48C7-9955-A2F10008F33A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -122,6 +126,14 @@ Global
 		{A1F35031-7D41-4D08-BAC9-63F366E81A05}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A1F35031-7D41-4D08-BAC9-63F366E81A05}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A1F35031-7D41-4D08-BAC9-63F366E81A05}.Release|Any CPU.Build.0 = Release|Any CPU
+	{198F5D23-D0A4-4FB6-81BE-FB9CAC58C842}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+	{198F5D23-D0A4-4FB6-81BE-FB9CAC58C842}.Debug|Any CPU.Build.0 = Debug|Any CPU
+	{198F5D23-D0A4-4FB6-81BE-FB9CAC58C842}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	{198F5D23-D0A4-4FB6-81BE-FB9CAC58C842}.Release|Any CPU.Build.0 = Release|Any CPU
+	{827D386C-9239-48C7-9955-A2F10008F33A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+	{827D386C-9239-48C7-9955-A2F10008F33A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+	{827D386C-9239-48C7-9955-A2F10008F33A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	{827D386C-9239-48C7-9955-A2F10008F33A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
