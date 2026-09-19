@@ -178,29 +178,34 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
     private async Task<PaymentAuthorisationDecision?> GetExistingDecisionAsync(
         PaymentAuthorisationRequest request, CancellationToken cancellationToken)
     {
-        var attempt = await _dbContext.AuthorisationAttempts.AsNoTracking()
-                                            .SingleOrDefaultAsync(
-                                                record => record.RequestId == request.RequestId,
-                                                cancellationToken);
+        var existing = await (
+            from attempt in _dbContext.AuthorisationAttempts.AsNoTracking()
+            join intent in _dbContext.PaymentIntents.AsNoTracking()
+                on attempt.PaymentId equals intent.PaymentId
+            where attempt.RequestId == request.RequestId
+            select new
+            {
+                Attempt = attempt,
+                Intent = intent
+            })
+            .SingleOrDefaultAsync(cancellationToken);
 
-        if (attempt is null)
+        if (existing is null)
         {
             return null;
         }
 
-        var intent = await _dbContext.PaymentIntents.AsNoTracking()
-                                     .SingleAsync(
-                                         record => record.PaymentId == attempt.PaymentId,
-                                         cancellationToken);
-
-        if (intent.OrderId != request.OrderId ||
-            intent.Amount != request.Amount.Amount ||
-            !string.Equals(intent.Currency, request.Amount.Currency, StringComparison.Ordinal))
+        if (existing.Intent.OrderId != request.OrderId ||
+            existing.Intent.Amount != request.Amount.Amount ||
+            !string.Equals(
+                existing.Intent.Currency,
+                request.Amount.Currency,
+                StringComparison.Ordinal))
         {
             throw new PaymentAuthorisationConflictException(request.RequestId, request.OrderId);
         }
 
-        return ToDecision(intent, attempt, replayed: true);
+        return ToDecision(existing.Intent, existing.Attempt, replayed: true);
     }
 
     private static PaymentAuthorisationDecision ToDecision(
