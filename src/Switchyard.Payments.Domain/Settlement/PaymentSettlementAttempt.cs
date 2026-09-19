@@ -58,10 +58,12 @@ public sealed record PaymentSettlementAttempt
                 nameof(status));
         }
 
-        if (status == PaymentSettlementStatus.Indeterminate && resolvedAtUtc is null)
+        if ((status == PaymentSettlementStatus.Indeterminate ||
+             status == PaymentSettlementStatus.NotApplied) &&
+            resolvedAtUtc is null)
         {
             throw new ArgumentException(
-                "An indeterminate payment settlement must record when the unknown outcome was observed.",
+                "A resolved payment settlement must record when the outcome was observed.",
                 nameof(resolvedAtUtc));
         }
 

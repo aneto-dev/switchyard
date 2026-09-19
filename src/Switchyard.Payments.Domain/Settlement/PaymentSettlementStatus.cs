@@ -4,5 +4,6 @@ public enum PaymentSettlementStatus
 {
     Pending = 0,
     Succeeded = 1,
-    Indeterminate = 2
+    Indeterminate = 2,
+    NotApplied = 3
 }

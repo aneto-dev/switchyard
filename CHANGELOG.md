@@ -24,6 +24,8 @@ All notable Switchyard changes will be recorded here.
 - Durable reconciliation attempt tracking with authorised, declined and still-unknown outcomes.
 - Durable capture and void workflows after successful payment authorisation.
 - Provider-idempotent settlement attempts with capture/void mutual exclusion and indeterminate outcomes.
+- Provider-truth reconciliation for indeterminate payment capture and void outcomes.
+- Durable settlement reconciliation tracking with Succeeded, NotApplied and still-unknown results.
 
 ## [0.1.0] - 2026-09-16
 
