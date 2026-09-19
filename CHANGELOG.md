@@ -17,6 +17,9 @@ All notable Switchyard changes will be recorded here.
 - Durable reservation idempotency and last-stock concurrency protection.
 - Idempotent reservation release and batched expiry execution.
 - Release/expiry race protection that returns reserved stock once.
+- Payment authorisation with durable internal and provider idempotency.
+- Deterministic payment-provider simulation for authorised, declined and indeterminate outcomes.
+- Payments-owned PostgreSQL persistence with concurrent duplicate-authorisation coverage.
 
 ## [0.1.0] - 2026-09-16
 

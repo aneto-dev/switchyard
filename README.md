@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.3.0 Inventory Reservation - in development**
+**v0.4.0 Payments - in development**
 
-The v0.2 Ordering core is complete. v0.3 now introduces the first Inventory reservation slice and the concurrency rules needed before payment authorisation.
+The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 now introduces the Payments boundary, starting with durable payment authorisation and provider-failure semantics.
 
 Implemented so far:
 
@@ -29,9 +29,14 @@ Implemented so far:
 - idempotent reservation release for compensation and cancellation
 - batched expiry execution with row locking and skip-locked processing
 - release/expiry race protection so reserved stock is returned once
+- Payments domain, application and persistence boundaries
+- durable payment authorisation idempotency per logical request/order
+- stable provider idempotency keys and retained provider references
+- deterministic provider simulation for authorised, declined and indeterminate outcomes
+- real PostgreSQL coverage for duplicate and concurrent authorisation safety
 - domain, application, API and architecture tests
 
-Payment integration, reliable messaging and the durable order-placement workflow are still to come.
+Payment reconciliation, capture/void, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 
@@ -94,6 +99,7 @@ npm ci
 docker compose -f infrastructure/local/compose.yml up -d postgres
 ./scripts/apply-ordering-migrations.ps1
 ./scripts/apply-inventory-migrations.ps1
+./scripts/apply-payments-migrations.ps1
 dotnet restore Switchyard.sln
 dotnet build Switchyard.sln -c Release --no-restore
 dotnet test Switchyard.sln -c Release --no-build
@@ -148,6 +154,9 @@ src/
   Switchyard.Inventory.Domain/
   Switchyard.Inventory.Application/
   Switchyard.Inventory.Infrastructure/
+  Switchyard.Payments.Domain/
+  Switchyard.Payments.Application/
+  Switchyard.Payments.Infrastructure/
   Switchyard.Ordering.Domain/
   Switchyard.Ordering.Application/
   Switchyard.Ordering.Infrastructure/
@@ -156,6 +165,8 @@ tests/
   Switchyard.IntegrationTests/
   Switchyard.Ordering.Domain.Tests/
   Switchyard.Ordering.Application.Tests/
+  Switchyard.Payments.Domain.Tests/
+  Switchyard.Payments.Application.Tests/
   Switchyard.Architecture.Tests/
 infrastructure/
   local/
@@ -173,8 +184,8 @@ More projects are added only when they contain real implementation.
 
 - v0.1 - Engineering foundation - complete
 - v0.2 - Order Management Core - complete
-- v0.3 - Inventory Reservation - in progress
-- v0.4 - Payments and provider simulation
+- v0.3 - Inventory Reservation - complete
+- v0.4 - Payments and provider simulation - in progress
 - v0.5 - Messaging, outbox/inbox and durable placement workflow
 - v0.6 - Fulfilment and cancellation
 - v0.7 - Returns and refunds

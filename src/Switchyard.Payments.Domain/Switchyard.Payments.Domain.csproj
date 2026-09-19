@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Switchyard.Payments.Domain</AssemblyName>
+    <RootNamespace>Switchyard.Payments.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>
