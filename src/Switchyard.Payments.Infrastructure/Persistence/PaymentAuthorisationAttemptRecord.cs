@@ -17,4 +17,8 @@ internal sealed class PaymentAuthorisationAttemptRecord
     public DateTimeOffset RequestedAtUtc { get; set; }
 
     public DateTimeOffset? ResolvedAtUtc { get; set; }
+
+    public int ReconciliationAttemptCount { get; set; }
+
+    public DateTimeOffset? LastReconciledAtUtc { get; set; }
 }

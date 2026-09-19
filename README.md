@@ -8,7 +8,7 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 **v0.4.0 Payments - in development**
 
-The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 now introduces the Payments boundary, starting with durable payment authorisation and provider-failure semantics.
+The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 now includes durable payment authorisation and provider-truth reconciliation for uncertain outcomes.
 
 Implemented so far:
 
@@ -34,9 +34,11 @@ Implemented so far:
 - stable provider idempotency keys and retained provider references
 - deterministic provider simulation for authorised, declined and indeterminate outcomes
 - real PostgreSQL coverage for duplicate and concurrent authorisation safety
+- provider-truth reconciliation for indeterminate payment authorisations
+- durable reconciliation attempt tracking and safe authorised/declined resolution
 - domain, application, API and architecture tests
 
-Payment reconciliation, capture/void, reliable messaging and the durable order-placement workflow are still to come.
+Payment capture/void, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 

@@ -20,6 +20,8 @@ All notable Switchyard changes will be recorded here.
 - Payment authorisation with durable internal and provider idempotency.
 - Deterministic payment-provider simulation for authorised, declined and indeterminate outcomes.
 - Payments-owned PostgreSQL persistence with concurrent duplicate-authorisation coverage.
+- Provider-truth reconciliation for indeterminate payment authorisations.
+- Durable reconciliation attempt tracking with authorised, declined and still-unknown outcomes.
 
 ## [0.1.0] - 2026-09-16
 
