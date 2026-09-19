@@ -36,9 +36,12 @@ Implemented so far:
 - real PostgreSQL coverage for duplicate and concurrent authorisation safety
 - provider-truth reconciliation for indeterminate payment authorisations
 - durable reconciliation attempt tracking and safe authorised/declined resolution
+- durable capture and void workflows after successful authorisation
+- provider-idempotent settlement attempts with capture/void mutual exclusion
+- indeterminate settlement outcomes retained for later provider reconciliation
 - domain, application, API and architecture tests
 
-Payment capture/void, reliable messaging and the durable order-placement workflow are still to come.
+Payment settlement reconciliation, reliable messaging and the durable order-placement workflow are still to come.
 
 ## Architecture direction
 

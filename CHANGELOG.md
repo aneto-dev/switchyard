@@ -22,6 +22,8 @@ All notable Switchyard changes will be recorded here.
 - Payments-owned PostgreSQL persistence with concurrent duplicate-authorisation coverage.
 - Provider-truth reconciliation for indeterminate payment authorisations.
 - Durable reconciliation attempt tracking with authorised, declined and still-unknown outcomes.
+- Durable capture and void workflows after successful payment authorisation.
+- Provider-idempotent settlement attempts with capture/void mutual exclusion and indeterminate outcomes.
 
 ## [0.1.0] - 2026-09-16
 

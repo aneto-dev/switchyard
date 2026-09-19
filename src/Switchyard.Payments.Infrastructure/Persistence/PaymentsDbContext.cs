@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Switchyard.Payments.Domain.Authorisation;
+using Switchyard.Payments.Domain.Settlement;
 
 namespace Switchyard.Payments.Infrastructure.Persistence;
 
@@ -14,6 +15,9 @@ public sealed class PaymentsDbContext : DbContext
 
     internal DbSet<PaymentAuthorisationAttemptRecord> AuthorisationAttempts =>
         Set<PaymentAuthorisationAttemptRecord>();
+
+    internal DbSet<PaymentSettlementAttemptRecord> SettlementAttempts =>
+        Set<PaymentSettlementAttemptRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -125,5 +129,65 @@ public sealed class PaymentsDbContext : DbContext
                .HasForeignKey(record => record.PaymentId)
                .OnDelete(DeleteBehavior.Restrict)
                .HasConstraintName("fk_payments_authorisation_payment_intent");
+
+        var settlement = modelBuilder.Entity<PaymentSettlementAttemptRecord>();
+        settlement.ToTable(
+            "settlement_attempts",
+            "payments",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_action",
+                    "action IN (0, 1)");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_status",
+                    "status IN (0, 1, 2)");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_provider_key",
+                    "btrim(provider_idempotency_key) <> ''");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_provider_reference",
+                    "provider_reference IS NULL OR btrim(provider_reference) <> ''");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_shape",
+                    "(status = 0 AND provider_reference IS NULL AND resolved_at_utc IS NULL) OR " +
+                    "(status = 1 AND provider_reference IS NOT NULL AND resolved_at_utc IS NOT NULL) OR " +
+                    "(status = 2 AND resolved_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_time",
+                    "resolved_at_utc IS NULL OR resolved_at_utc >= requested_at_utc");
+            });
+        settlement.HasKey(record => record.RequestId)
+                  .HasName("pk_payments_settlement_attempts");
+        settlement.Property(record => record.RequestId).HasColumnName("request_id");
+        settlement.Property(record => record.PaymentId).HasColumnName("payment_id");
+        settlement.Property(record => record.Action).HasColumnName("action").HasConversion<int>();
+        settlement.Property(record => record.Status).HasColumnName("status").HasConversion<int>();
+        settlement.Property(record => record.ProviderIdempotencyKey)
+                  .HasColumnName("provider_idempotency_key")
+                  .HasMaxLength(100)
+                  .IsRequired();
+        settlement.Property(record => record.ProviderReference)
+                  .HasColumnName("provider_reference")
+                  .HasMaxLength(100);
+        settlement.Property(record => record.RequestedAtUtc)
+                  .HasColumnName("requested_at_utc")
+                  .IsRequired();
+        settlement.Property(record => record.ResolvedAtUtc)
+                  .HasColumnName("resolved_at_utc");
+        settlement.HasIndex(record => record.PaymentId)
+                  .IsUnique()
+                  .HasDatabaseName("ux_payments_settlement_payment");
+        settlement.HasIndex(record => record.ProviderIdempotencyKey)
+                  .IsUnique()
+                  .HasDatabaseName("ux_payments_settlement_provider_key");
+        settlement.HasIndex(record => record.ProviderReference)
+                  .IsUnique()
+                  .HasDatabaseName("ux_payments_settlement_provider_reference");
+        settlement.HasOne<PaymentIntentRecord>()
+                  .WithMany()
+                  .HasForeignKey(record => record.PaymentId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("fk_payments_settlement_payment_intent");
     }
 }
