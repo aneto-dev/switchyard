@@ -78,6 +78,19 @@ public sealed class PaymentsDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_payments_authorisation_time",
                     "resolved_at_utc IS NULL OR resolved_at_utc >= requested_at_utc");
+                table.HasCheckConstraint(
+                    "ck_payments_authorisation_reconciliation_count",
+                    "reconciliation_attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_payments_authorisation_reconciliation_shape",
+                    "(reconciliation_attempt_count = 0 AND last_reconciled_at_utc IS NULL) OR " +
+                    "(reconciliation_attempt_count > 0 AND last_reconciled_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_payments_authorisation_pending_not_reconciled",
+                    "status <> 0 OR reconciliation_attempt_count = 0");
+                table.HasCheckConstraint(
+                    "ck_payments_authorisation_reconciliation_time",
+                    "last_reconciled_at_utc IS NULL OR last_reconciled_at_utc >= requested_at_utc");
             });
         attempt.HasKey(record => record.RequestId).HasName("pk_payments_authorisation_attempts");
         attempt.Property(record => record.RequestId).HasColumnName("request_id");
@@ -92,6 +105,12 @@ public sealed class PaymentsDbContext : DbContext
         attempt.Property(record => record.Status).HasColumnName("status").HasConversion<int>();
         attempt.Property(record => record.RequestedAtUtc).HasColumnName("requested_at_utc").IsRequired();
         attempt.Property(record => record.ResolvedAtUtc).HasColumnName("resolved_at_utc");
+        attempt.Property(record => record.ReconciliationAttemptCount)
+               .HasColumnName("reconciliation_attempt_count")
+               .HasDefaultValue(0)
+               .IsRequired();
+        attempt.Property(record => record.LastReconciledAtUtc)
+               .HasColumnName("last_reconciled_at_utc");
         attempt.HasIndex(record => record.PaymentId)
                .IsUnique()
                .HasDatabaseName("ux_payments_authorisation_payment");
