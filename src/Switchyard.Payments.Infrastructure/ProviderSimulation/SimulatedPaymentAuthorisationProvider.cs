@@ -3,6 +3,7 @@ using Switchyard.Payments.Application.Authorisation;
 using Switchyard.Payments.Application.Ports;
 using Switchyard.Payments.Application.Reconciliation;
 using Switchyard.Payments.Application.Settlement;
+using Switchyard.Payments.Application.SettlementReconciliation;
 using Switchyard.Payments.Domain.Settlement;
 
 namespace Switchyard.Payments.Infrastructure.ProviderSimulation;
@@ -10,11 +11,13 @@ namespace Switchyard.Payments.Infrastructure.ProviderSimulation;
 public sealed class SimulatedPaymentAuthorisationProvider :
     IPaymentAuthorisationProvider,
     IPaymentAuthorisationReconciliationProvider,
-    IPaymentSettlementProvider
+    IPaymentSettlementProvider,
+    IPaymentSettlementReconciliationProvider
 {
     private readonly SimulatedPaymentAuthorisationScenario _scenario;
     private readonly SimulatedPaymentReconciliationScenario _reconciliationScenario;
     private readonly SimulatedPaymentSettlementScenario _settlementScenario;
+    private readonly SimulatedPaymentSettlementReconciliationScenario _settlementReconciliationScenario;
     private readonly ConcurrentDictionary<string, SimulatedAuthorisation> _authorisations =
         new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, SimulatedAuthorisation> _authorisationsByReference =
@@ -26,12 +29,14 @@ public sealed class SimulatedPaymentAuthorisationProvider :
     private int _invocationCount;
     private int _reconciliationInvocationCount;
     private int _settlementInvocationCount;
+    private int _settlementReconciliationInvocationCount;
 
     public SimulatedPaymentAuthorisationProvider(SimulatedPaymentAuthorisationScenario scenario)
         : this(
             scenario,
             DefaultReconciliationScenario(scenario),
-            SimulatedPaymentSettlementScenario.Succeed)
+            SimulatedPaymentSettlementScenario.Succeed,
+            SimulatedPaymentSettlementReconciliationScenario.Succeed)
     {
     }
 
@@ -41,7 +46,8 @@ public sealed class SimulatedPaymentAuthorisationProvider :
         : this(
             scenario,
             reconciliationScenario,
-            SimulatedPaymentSettlementScenario.Succeed)
+            SimulatedPaymentSettlementScenario.Succeed,
+            SimulatedPaymentSettlementReconciliationScenario.Succeed)
     {
     }
 
@@ -49,6 +55,19 @@ public sealed class SimulatedPaymentAuthorisationProvider :
         SimulatedPaymentAuthorisationScenario scenario,
         SimulatedPaymentReconciliationScenario reconciliationScenario,
         SimulatedPaymentSettlementScenario settlementScenario)
+        : this(
+            scenario,
+            reconciliationScenario,
+            settlementScenario,
+            DefaultSettlementReconciliationScenario(settlementScenario))
+    {
+    }
+
+    public SimulatedPaymentAuthorisationProvider(
+        SimulatedPaymentAuthorisationScenario scenario,
+        SimulatedPaymentReconciliationScenario reconciliationScenario,
+        SimulatedPaymentSettlementScenario settlementScenario,
+        SimulatedPaymentSettlementReconciliationScenario settlementReconciliationScenario)
     {
         if (!Enum.IsDefined(scenario))
         {
@@ -71,9 +90,18 @@ public sealed class SimulatedPaymentAuthorisationProvider :
                 "Payment settlement simulation scenario is not supported.");
         }
 
+        if (!Enum.IsDefined(settlementReconciliationScenario))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(settlementReconciliationScenario),
+                settlementReconciliationScenario,
+                "Payment settlement reconciliation simulation scenario is not supported.");
+        }
+
         _scenario = scenario;
         _reconciliationScenario = reconciliationScenario;
         _settlementScenario = settlementScenario;
+        _settlementReconciliationScenario = settlementReconciliationScenario;
     }
 
     public int InvocationCount => Volatile.Read(ref _invocationCount);
@@ -83,6 +111,9 @@ public sealed class SimulatedPaymentAuthorisationProvider :
 
     public int SettlementInvocationCount =>
         Volatile.Read(ref _settlementInvocationCount);
+
+    public int SettlementReconciliationInvocationCount =>
+        Volatile.Read(ref _settlementReconciliationInvocationCount);
 
     public int UniqueAuthorisationCount => _authorisations.Count;
 
@@ -286,6 +317,72 @@ public sealed class SimulatedPaymentAuthorisationProvider :
             new PaymentProviderSettlementResult(stored.ProviderReference));
     }
 
+    public Task<PaymentProviderSettlementReconciliationResult> ReconcileAsync(
+        PaymentProviderSettlementReconciliationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(request.IdempotencyKey))
+        {
+            throw new ArgumentException(
+                "Provider idempotency key is required.",
+                nameof(request));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.AuthorisationProviderReference))
+        {
+            throw new ArgumentException(
+                "Authorisation provider reference is required.",
+                nameof(request));
+        }
+
+        Interlocked.Increment(ref _settlementReconciliationInvocationCount);
+
+        if (!_settlements.TryGetValue(request.IdempotencyKey, out var stored))
+        {
+            return Task.FromResult(
+                new PaymentProviderSettlementReconciliationResult(
+                    PaymentProviderSettlementReconciliationOutcome.NotApplied,
+                    null));
+        }
+
+        if (stored.PaymentId != request.PaymentId ||
+            stored.OrderId != request.OrderId ||
+            stored.Action != request.Action ||
+            stored.Amount != request.Amount ||
+            !string.Equals(stored.Currency, request.Currency, StringComparison.Ordinal) ||
+            !string.Equals(
+                stored.AuthorisationProviderReference,
+                request.AuthorisationProviderReference,
+                StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Provider settlement reconciliation identity does not match the stored settlement.");
+        }
+
+        var result = _settlementReconciliationScenario switch
+        {
+            SimulatedPaymentSettlementReconciliationScenario.Succeed =>
+                new PaymentProviderSettlementReconciliationResult(
+                    PaymentProviderSettlementReconciliationOutcome.Succeeded,
+                    stored.ProviderReference),
+            SimulatedPaymentSettlementReconciliationScenario.NotApplied =>
+                new PaymentProviderSettlementReconciliationResult(
+                    PaymentProviderSettlementReconciliationOutcome.NotApplied,
+                    null),
+            SimulatedPaymentSettlementReconciliationScenario.StillIndeterminate =>
+                new PaymentProviderSettlementReconciliationResult(
+                    PaymentProviderSettlementReconciliationOutcome.Unknown,
+                    null),
+            _ => throw new InvalidOperationException(
+                "Payment settlement reconciliation simulation reached an unsupported scenario.")
+        };
+
+        return Task.FromResult(result);
+    }
+
     private static SimulatedPaymentReconciliationScenario DefaultReconciliationScenario(
         SimulatedPaymentAuthorisationScenario scenario)
     {
@@ -297,6 +394,19 @@ public sealed class SimulatedPaymentAuthorisationProvider :
                 SimulatedPaymentReconciliationScenario.Decline,
             SimulatedPaymentAuthorisationScenario.Indeterminate =>
                 SimulatedPaymentReconciliationScenario.StillIndeterminate,
+            _ => throw new ArgumentOutOfRangeException(nameof(scenario))
+        };
+    }
+
+    private static SimulatedPaymentSettlementReconciliationScenario DefaultSettlementReconciliationScenario(
+        SimulatedPaymentSettlementScenario scenario)
+    {
+        return scenario switch
+        {
+            SimulatedPaymentSettlementScenario.Succeed =>
+                SimulatedPaymentSettlementReconciliationScenario.Succeed,
+            SimulatedPaymentSettlementScenario.Indeterminate =>
+                SimulatedPaymentSettlementReconciliationScenario.StillIndeterminate,
             _ => throw new ArgumentOutOfRangeException(nameof(scenario))
         };
     }

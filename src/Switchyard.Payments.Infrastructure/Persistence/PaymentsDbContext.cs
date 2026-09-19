@@ -141,7 +141,7 @@ public sealed class PaymentsDbContext : DbContext
                     "action IN (0, 1)");
                 table.HasCheckConstraint(
                     "ck_payments_settlement_status",
-                    "status IN (0, 1, 2)");
+                    "status IN (0, 1, 2, 3)");
                 table.HasCheckConstraint(
                     "ck_payments_settlement_provider_key",
                     "btrim(provider_idempotency_key) <> ''");
@@ -152,10 +152,23 @@ public sealed class PaymentsDbContext : DbContext
                     "ck_payments_settlement_shape",
                     "(status = 0 AND provider_reference IS NULL AND resolved_at_utc IS NULL) OR " +
                     "(status = 1 AND provider_reference IS NOT NULL AND resolved_at_utc IS NOT NULL) OR " +
-                    "(status = 2 AND resolved_at_utc IS NOT NULL)");
+                    "(status IN (2, 3) AND resolved_at_utc IS NOT NULL)");
                 table.HasCheckConstraint(
                     "ck_payments_settlement_time",
                     "resolved_at_utc IS NULL OR resolved_at_utc >= requested_at_utc");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_reconciliation_count",
+                    "reconciliation_attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_reconciliation_shape",
+                    "(reconciliation_attempt_count = 0 AND last_reconciled_at_utc IS NULL) OR " +
+                    "(reconciliation_attempt_count > 0 AND last_reconciled_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_pending_not_reconciled",
+                    "status <> 0 OR reconciliation_attempt_count = 0");
+                table.HasCheckConstraint(
+                    "ck_payments_settlement_reconciliation_time",
+                    "last_reconciled_at_utc IS NULL OR last_reconciled_at_utc >= requested_at_utc");
             });
         settlement.HasKey(record => record.RequestId)
                   .HasName("pk_payments_settlement_attempts");
@@ -175,6 +188,12 @@ public sealed class PaymentsDbContext : DbContext
                   .IsRequired();
         settlement.Property(record => record.ResolvedAtUtc)
                   .HasColumnName("resolved_at_utc");
+        settlement.Property(record => record.ReconciliationAttemptCount)
+                  .HasColumnName("reconciliation_attempt_count")
+                  .HasDefaultValue(0)
+                  .IsRequired();
+        settlement.Property(record => record.LastReconciledAtUtc)
+                  .HasColumnName("last_reconciled_at_utc");
         settlement.HasIndex(record => record.PaymentId)
                   .IsUnique()
                   .HasDatabaseName("ux_payments_settlement_payment");

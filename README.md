@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.4.0 Payments - in development**
+**v0.4.0 Payments - complete**
 
-The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 now includes durable payment authorisation and provider-truth reconciliation for uncertain outcomes.
+The v0.2 Ordering core and v0.3 Inventory reservation lifecycle are complete. v0.4 adds durable payment authorisation, capture and void plus provider-truth reconciliation for uncertain authorisation and settlement outcomes.
 
 Implemented so far:
 
@@ -38,10 +38,13 @@ Implemented so far:
 - durable reconciliation attempt tracking and safe authorised/declined resolution
 - durable capture and void workflows after successful authorisation
 - provider-idempotent settlement attempts with capture/void mutual exclusion
-- indeterminate settlement outcomes retained for later provider reconciliation
+- indeterminate settlement outcomes retained for provider reconciliation
+- provider-truth reconciliation for uncertain capture and void outcomes
+- durable settlement reconciliation tracking with Succeeded, NotApplied and still-unknown outcomes
+- concurrency-safe reconciliation that preserves the first definite provider truth
 - domain, application, API and architecture tests
 
-Payment settlement reconciliation, reliable messaging and the durable order-placement workflow are still to come.
+The next milestone is v0.5, adding reliable messaging, outbox/inbox delivery and the durable order-placement workflow.
 
 ## Architecture direction
 
@@ -190,7 +193,7 @@ More projects are added only when they contain real implementation.
 - v0.1 - Engineering foundation - complete
 - v0.2 - Order Management Core - complete
 - v0.3 - Inventory Reservation - complete
-- v0.4 - Payments and provider simulation - in progress
+- v0.4 - Payments and provider simulation - complete
 - v0.5 - Messaging, outbox/inbox and durable placement workflow
 - v0.6 - Fulfilment and cancellation
 - v0.7 - Returns and refunds
