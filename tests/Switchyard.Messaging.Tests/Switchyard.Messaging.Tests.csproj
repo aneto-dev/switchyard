@@ -10,7 +10,5 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Switchyard.Messaging\Switchyard.Messaging.csproj" />
-    <ProjectReference Include="..\..\src\Switchyard.Ordering.Application\Switchyard.Ordering.Application.csproj" />
-    <ProjectReference Include="..\..\src\Switchyard.Ordering.Domain\Switchyard.Ordering.Domain.csproj" />
   </ItemGroup>
 </Project>

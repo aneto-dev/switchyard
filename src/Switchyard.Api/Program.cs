@@ -5,6 +5,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Switchyard.Api.Health;
 using Switchyard.Api.Ordering;
+using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Orders;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Infrastructure.Persistence;
@@ -35,6 +36,7 @@ builder.Services.AddDbContext<OrderingDbContext>((serviceProvider, options) =>
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
 builder.Services.AddScoped<IOrderRequestRepository, EfOrderRequestRepository>();
 builder.Services.AddScoped<IOrderingUnitOfWork, EfOrderingUnitOfWork>();
+builder.Services.AddScoped<IOutboxWriter, EfOrderingOutboxStore>();
 builder.Services.AddScoped<IOrderNumberGenerator, PostgresOrderNumberGenerator>();
 builder.Services.AddScoped<CreatePendingOrderHandler>();
 builder.Services.AddScoped<GetOrderHandler>();
@@ -50,8 +52,8 @@ if (app.Environment.IsDevelopment())
 app.MapGet("/", () => Results.Ok(new
 {
     service = "Switchyard.Api",
-    status = "order-management-core",
-    version = "0.2.0-dev"
+    status = "reliable-messaging",
+    version = "0.5.0-dev"
 }));
 
 app.MapOrderingEndpoints();

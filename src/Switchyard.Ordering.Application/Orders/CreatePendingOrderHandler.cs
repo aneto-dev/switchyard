@@ -1,3 +1,5 @@
+using System.Text.Json;
+using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Domain.Orders;
 
@@ -10,17 +12,19 @@ public sealed class CreatePendingOrderHandler
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderRequestRepository _orderRequestRepository;
     private readonly IOrderingUnitOfWork _unitOfWork;
+    private readonly IOutboxWriter _outboxWriter;
     private readonly IOrderNumberGenerator _orderNumberGenerator;
     private readonly TimeProvider _timeProvider;
 
     public CreatePendingOrderHandler(
         IOrderRepository orderRepository, IOrderRequestRepository orderRequestRepository,
-        IOrderingUnitOfWork unitOfWork, IOrderNumberGenerator orderNumberGenerator,
-        TimeProvider timeProvider)
+        IOrderingUnitOfWork unitOfWork, IOutboxWriter outboxWriter,
+        IOrderNumberGenerator orderNumberGenerator, TimeProvider timeProvider)
     {
         _orderRepository = orderRepository ?? throw new ArgumentNullException(nameof(orderRepository));
         _orderRequestRepository = orderRequestRepository ?? throw new ArgumentNullException(nameof(orderRequestRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
+        _outboxWriter = outboxWriter ?? throw new ArgumentNullException(nameof(outboxWriter));
         _orderNumberGenerator = orderNumberGenerator ?? throw new ArgumentNullException(nameof(orderNumberGenerator));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
     }
@@ -56,6 +60,23 @@ public sealed class CreatePendingOrderHandler
 
         await _orderRepository.AddAsync(order, cancellationToken);
         await _orderRequestRepository.AddAsync(acceptedRequest, cancellationToken);
+
+        var integrationMessage = new OrderAcceptedIntegrationMessageV1(
+            order.Id.Value,
+            order.OrderNumber.Value,
+            order.Total.Amount,
+            order.Total.Currency,
+            acceptedAtUtc);
+
+        await _outboxWriter.AddAsync(
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                OrderAcceptedIntegrationMessageV1.MessageType,
+                JsonSerializer.Serialize(integrationMessage, JsonSerializerOptions.Web),
+                acceptedAtUtc,
+                order.Id.Value,
+                causationId: null),
+            cancellationToken);
 
         try
         {

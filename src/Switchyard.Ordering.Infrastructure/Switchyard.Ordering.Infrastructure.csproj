@@ -9,6 +9,7 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Messaging\Switchyard.Messaging.csproj" />
     <ProjectReference Include="..\Switchyard.Ordering.Application\Switchyard.Ordering.Application.csproj" />
     <ProjectReference Include="..\Switchyard.Ordering.Domain\Switchyard.Ordering.Domain.csproj" />
   </ItemGroup>

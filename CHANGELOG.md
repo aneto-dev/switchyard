@@ -26,6 +26,8 @@ All notable Switchyard changes will be recorded here.
 - Provider-idempotent settlement attempts with capture/void mutual exclusion and indeterminate outcomes.
 - Provider-truth reconciliation for indeterminate payment capture and void outcomes.
 - Durable settlement reconciliation tracking with Succeeded, NotApplied and still-unknown results.
+- Ordering transactional outbox for versioned OrderAccepted messages.
+- Lease-based outbox claiming with at-least-once dispatch and retry scheduling.
 
 ## [0.1.0] - 2026-09-16
 
