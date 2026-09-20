@@ -15,6 +15,8 @@ public sealed class OrderingDbContext : DbContext
 
     internal DbSet<OutboxMessageRecord> OutboxMessages => Set<OutboxMessageRecord>();
 
+    internal DbSet<InboxMessageRecord> InboxMessages => Set<InboxMessageRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -180,5 +182,64 @@ public sealed class OrderingDbContext : DbContext
         })
               .HasDatabaseName("ix_ordering_outbox_due")
               .HasFilter("published_at_utc IS NULL");
+
+        var inbox = modelBuilder.Entity<InboxMessageRecord>();
+        inbox.ToTable(
+            "inbox_messages",
+            "ordering",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_ordering_inbox_consumer_name",
+                    "btrim(consumer_name) <> ''");
+                table.HasCheckConstraint(
+                    "ck_ordering_inbox_message_type",
+                    "btrim(message_type) <> ''");
+                table.HasCheckConstraint(
+                    "ck_ordering_inbox_payload_hash",
+                    "char_length(payload_hash) = 64");
+                table.HasCheckConstraint(
+                    "ck_ordering_inbox_processed_time",
+                    "processed_at_utc >= received_at_utc");
+            });
+        inbox.HasKey(record => new
+        {
+            record.ConsumerName,
+            record.MessageId
+        })
+             .HasName("pk_ordering_inbox_messages");
+        inbox.Property(record => record.ConsumerName)
+             .HasColumnName("consumer_name")
+             .HasMaxLength(200)
+             .IsRequired();
+        inbox.Property(record => record.MessageId)
+             .HasColumnName("message_id");
+        inbox.Property(record => record.MessageType)
+             .HasColumnName("message_type")
+             .HasMaxLength(200)
+             .IsRequired();
+        inbox.Property(record => record.PayloadHash)
+             .HasColumnName("payload_hash")
+             .HasMaxLength(64)
+             .IsRequired();
+        inbox.Property(record => record.OccurredAtUtc)
+             .HasColumnName("occurred_at_utc")
+             .IsRequired();
+        inbox.Property(record => record.CorrelationId)
+             .HasColumnName("correlation_id");
+        inbox.Property(record => record.CausationId)
+             .HasColumnName("causation_id");
+        inbox.Property(record => record.ReceivedAtUtc)
+             .HasColumnName("received_at_utc")
+             .IsRequired();
+        inbox.Property(record => record.ProcessedAtUtc)
+             .HasColumnName("processed_at_utc")
+             .IsRequired();
+        inbox.HasIndex(record => new
+        {
+            record.ConsumerName,
+            record.ProcessedAtUtc
+        })
+             .HasDatabaseName("ix_ordering_inbox_consumer_processed");
     }
 }

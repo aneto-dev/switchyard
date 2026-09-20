@@ -28,6 +28,7 @@ All notable Switchyard changes will be recorded here.
 - Durable settlement reconciliation tracking with Succeeded, NotApplied and still-unknown results.
 - Ordering transactional outbox for versioned OrderAccepted messages.
 - Lease-based outbox claiming with at-least-once dispatch and retry scheduling.
+- Transactional Ordering inbox with duplicate-safe local processing and atomic outbox handoff.
 
 ## [0.1.0] - 2026-09-16
 

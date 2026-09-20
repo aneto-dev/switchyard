@@ -47,9 +47,13 @@ Implemented so far:
 - leased PostgreSQL outbox claims using FOR UPDATE SKIP LOCKED
 - at-least-once batch dispatcher with durable retry scheduling and lease recovery
 - commit/publish crash-window coverage that makes duplicate delivery an explicit design constraint
+- durable Ordering inbox keyed by consumer and message ID
+- transactional inbox handling that commits local state and outgoing outbox work with the receipt marker
+- duplicate and concurrent delivery suppression with conflicting message-ID detection
+- handler failure rollback so unsuccessful local work remains retryable
 - domain, application, API and architecture tests
 
-Inbox/idempotent consumer handling, Azure Service Bus transport, the Worker host and the durable order-placement process manager are still to come in v0.5.
+Azure Service Bus transport, the Worker host and the durable order-placement process manager are still to come in v0.5.
 
 ## Architecture direction
 
@@ -153,7 +157,7 @@ Database migrations remain explicit deployment work. The API does not migrate th
 Run the repository check with an ephemeral local PostgreSQL dependency:
 
 ```powershell
-./scripts/verify-foundation.ps1 -CleanupDockerCompose
+./scripts/verify-repository.ps1 -CleanupDockerCompose
 ```
 
 ## Repository layout
@@ -164,6 +168,7 @@ apps/
   operations-web/
 src/
   Switchyard.Api/
+  Switchyard.Messaging/
   Switchyard.Inventory.Domain/
   Switchyard.Inventory.Application/
   Switchyard.Inventory.Infrastructure/
@@ -175,6 +180,7 @@ src/
   Switchyard.Ordering.Infrastructure/
 tests/
   Switchyard.Api.Tests/
+  Switchyard.Messaging.Tests/
   Switchyard.IntegrationTests/
   Switchyard.Ordering.Domain.Tests/
   Switchyard.Ordering.Application.Tests/

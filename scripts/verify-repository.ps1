@@ -103,7 +103,7 @@ if (-not $DotnetVersion.StartsWith("10.0.")) {
 
 $NodeMajor = [int]($NodeVersion.Split('.')[0])
 if ($NodeMajor -ne 24) {
-    throw "Switchyard foundation requires Node 24 LTS. Found $NodeVersion."
+    throw "Switchyard requires Node 24 LTS. Found $NodeVersion."
 }
 
 try {
@@ -121,7 +121,7 @@ Write-Host "Docker client : $DockerClientVersion"
 Write-Host "Docker engine : $DockerServerVersion"
 
 if (-not (Test-Path package-lock.json)) {
-    throw "package-lock.json is required for reproducible v0.1 setup."
+    throw "package-lock.json is required for reproducible setup."
 }
 
 Write-Host "`n=== NPM CLEAN INSTALL ===" -ForegroundColor Cyan
@@ -157,4 +157,4 @@ finally {
     }
 }
 
-Write-Host "`nSwitchyard v0.1 foundation verification passed." -ForegroundColor Green
+Write-Host "`nSwitchyard repository verification passed." -ForegroundColor Green
