@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Messaging\Switchyard.Messaging.csproj" />
+    <ProjectReference Include="..\Switchyard.Messaging.ServiceBus\Switchyard.Messaging.ServiceBus.csproj" />
+    <ProjectReference Include="..\Switchyard.Ordering.Infrastructure\Switchyard.Ordering.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

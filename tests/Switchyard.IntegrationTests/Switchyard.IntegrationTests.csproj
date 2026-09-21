@@ -23,5 +23,6 @@
     <ProjectReference Include="..\..\src\Switchyard.Payments.Application\Switchyard.Payments.Application.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Payments.Domain\Switchyard.Payments.Domain.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Payments.Infrastructure\Switchyard.Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Switchyard.Worker\Switchyard.Worker.csproj" />
   </ItemGroup>
 </Project>

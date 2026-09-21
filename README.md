@@ -51,9 +51,13 @@ Implemented so far:
 - transactional inbox handling that commits local state and outgoing outbox work with the receipt marker
 - duplicate and concurrent delivery suppression with conflicting message-ID detection
 - handler failure rollback so unsuccessful local work remains retryable
+- dedicated Worker host for continuous Ordering outbox dispatch
+- Azure.Messaging.ServiceBus sender adapter with stable message, correlation and causation metadata
+- Microsoft Entra authentication for cloud Service Bus and connection-string support for the local emulator
+- official Azure Service Bus emulator configuration for local development
 - domain, application, API and architecture tests
 
-Azure Service Bus transport, the Worker host and the durable order-placement process manager are still to come in v0.5.
+Inbound Service Bus handling and the durable order-placement process manager are still to come in v0.5.
 
 ## Architecture direction
 
@@ -125,6 +129,26 @@ npm run typecheck
 npm run build:web
 ```
 
+
+## Worker and local Service Bus
+
+`Switchyard.Worker` dispatches durable Ordering outbox messages to the `switchyard-events` Service Bus topic.
+
+For the public Azure environment, configure `SWITCHYARD_SERVICEBUS_NAMESPACE` with the fully qualified namespace and use Microsoft Entra RBAC. Do not configure a cloud connection string.
+
+For local development, Switchyard includes configuration for the official Azure Service Bus emulator. Review the Microsoft Service Bus emulator and SQL Server container license terms before setting `SWITCHYARD_SERVICEBUS_ACCEPT_EULA=Y`. Then set a strong local-only SQL password and start the emulator:
+
+```powershell
+docker compose -f infrastructure/local/servicebus-emulator.compose.yml up -d
+```
+
+Set the Ordering PostgreSQL connection string and local emulator connection string in the Worker process environment, then run:
+
+```powershell
+dotnet run --project src/Switchyard.Worker
+```
+
+The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
 ## Ordering API
 
 Create an order:
@@ -169,6 +193,8 @@ apps/
 src/
   Switchyard.Api/
   Switchyard.Messaging/
+  Switchyard.Messaging.ServiceBus/
+  Switchyard.Worker/
   Switchyard.Inventory.Domain/
   Switchyard.Inventory.Application/
   Switchyard.Inventory.Infrastructure/

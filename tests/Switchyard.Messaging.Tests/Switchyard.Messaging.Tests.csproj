@@ -10,5 +10,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\Switchyard.Messaging\Switchyard.Messaging.csproj" />
+    <ProjectReference Include="..\..\src\Switchyard.Messaging.ServiceBus\Switchyard.Messaging.ServiceBus.csproj" />
   </ItemGroup>
 </Project>
