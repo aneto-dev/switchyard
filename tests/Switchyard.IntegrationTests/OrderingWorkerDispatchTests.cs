@@ -1,0 +1,112 @@
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using Switchyard.Messaging;
+using Switchyard.Ordering.Application.Orders;
+using Switchyard.Ordering.Infrastructure.Persistence;
+using Switchyard.Worker;
+using Testcontainers.PostgreSql;
+
+namespace Switchyard.IntegrationTests;
+
+public sealed class OrderingWorkerDispatchTests
+{
+    [Fact]
+    public async Task DispatchCyclePublishesAndMarksOrderingOutboxMessage()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var postgres = new PostgreSqlBuilder("postgres:18-alpine")
+            .WithDatabase("switchyard_worker_dispatch_test")
+            .WithUsername("switchyard")
+            .WithPassword("switchyard-test-only")
+            .Build();
+        await postgres.StartAsync(cancellationToken);
+
+        var connectionString = postgres.GetConnectionString();
+        await using (var migrationContext = CreateDbContext(connectionString))
+        {
+            await migrationContext.Database.MigrateAsync(cancellationToken);
+        }
+
+        var acceptedAtUtc = new DateTimeOffset(2026, 9, 20, 14, 10, 0, TimeSpan.Zero);
+        await SeedOutboxAsync(connectionString, acceptedAtUtc, cancellationToken);
+
+        var transport = new RecordingTransport();
+        var dispatchAtUtc = acceptedAtUtc.AddSeconds(1);
+        var cycle = new OrderingOutboxDispatchCycle(
+            new TestOrderingDbContextFactory(connectionString),
+            transport,
+            new FixedTimeProvider(dispatchAtUtc),
+            new OrderingOutboxWorkerOptions(
+                10, TimeSpan.FromMinutes(1), TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(500)));
+
+        var result = await cycle.DispatchAsync(cancellationToken);
+
+        Assert.Equal(new OutboxDispatchResult(1, 1, 0), result);
+        Assert.Single(transport.Published);
+
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(
+            "SELECT published_at_utc FROM ordering.outbox_messages ORDER BY occurred_at_utc, message_id LIMIT 1;",
+            connection);
+        var publishedAtUtc = await command.ExecuteScalarAsync(cancellationToken);
+        Assert.Equal(dispatchAtUtc.UtcDateTime, Assert.IsType<DateTime>(publishedAtUtc));
+    }
+
+    private static async Task SeedOutboxAsync(
+        string connectionString, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        await using var dbContext = CreateDbContext(connectionString);
+        var handler = new CreatePendingOrderHandler(
+            new EfOrderRepository(dbContext),
+            new EfOrderRequestRepository(dbContext),
+            new EfOrderingUnitOfWork(dbContext),
+            new EfOrderingOutboxStore(dbContext),
+            new PostgresOrderNumberGenerator(dbContext),
+            new FixedTimeProvider(now));
+
+        await handler.HandleAsync(
+            new CreatePendingOrderCommand(
+                $"checkout-worker-{Guid.NewGuid():N}",
+                new[] { new CreatePendingOrderLine("BIKE-001", "Road Bike", 1, 1299.99m, "GBP") }),
+            cancellationToken);
+    }
+
+    private static OrderingDbContext CreateDbContext(string connectionString)
+    {
+        var options = new DbContextOptionsBuilder<OrderingDbContext>()
+            .UseNpgsql(connectionString)
+            .Options;
+        return new OrderingDbContext(options);
+    }
+
+    private sealed class RecordingTransport : IMessageTransport
+    {
+        public List<IntegrationMessageEnvelope> Published { get; } = [];
+        public Task PublishAsync(IntegrationMessageEnvelope message, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Published.Add(message);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class TestOrderingDbContextFactory : IDbContextFactory<OrderingDbContext>
+    {
+        private readonly string _connectionString;
+        public TestOrderingDbContextFactory(string connectionString) => _connectionString = connectionString;
+        public OrderingDbContext CreateDbContext() => OrderingWorkerDispatchTests.CreateDbContext(_connectionString);
+        public Task<OrderingDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(CreateDbContext());
+        }
+    }
+
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _utcNow;
+        public FixedTimeProvider(DateTimeOffset utcNow) => _utcNow = utcNow;
+        public override DateTimeOffset GetUtcNow() => _utcNow;
+    }
+}

@@ -139,6 +139,7 @@ Invoke-Checked -Command "npm" -Arguments @("run", "build:web")
 
 Write-Host "`n=== DOCKER COMPOSE VALIDATION ===" -ForegroundColor Cyan
 Invoke-Checked -Command "docker" -Arguments @("compose", "-f", "infrastructure/local/compose.yml", "config", "--quiet")
+Invoke-Checked -Command "docker" -Arguments @("compose", "-f", "infrastructure/local/servicebus-emulator.compose.yml", "config", "--quiet")
 
 try {
     if (-not $SkipDockerComposeUp) {
