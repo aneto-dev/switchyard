@@ -30,7 +30,7 @@
                     "Properties": {
                       "FilterType": "Sql",
                       "SqlFilter": {
-                        "SqlExpression": "sys.label LIKE 'inventory.%' OR sys.label LIKE 'payments.%'"
+                        "SqlExpression": "sys.label LIKE 'inventory.event.%' OR sys.label LIKE 'payments.event.%'"
                       }
                     }
                   }

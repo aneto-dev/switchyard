@@ -32,6 +32,7 @@ All notable Switchyard changes will be recorded here.
 - Dedicated Worker host and Azure Service Bus sender for continuous outbox dispatch.
 - Inbound Service Bus receiver with manual settlement, bounded retry and durable Ordering inbox routing.
 - Real Service Bus emulator integration coverage for publish/complete, abandon/redelivery and dead-letter settlement.
+- Durable Ordering order-placement process foundation with per-line inventory reservation commands.
 
 ## [0.1.0] - 2026-09-16
 

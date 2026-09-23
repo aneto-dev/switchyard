@@ -95,6 +95,10 @@ public sealed class OrderingEndpointTests
         Assert.Equal(1, await CountRowsAsync(
             postgres.GetConnectionString(), "ordering.order_requests", cancellationToken));
         Assert.Equal(1, await CountRowsAsync(
+            postgres.GetConnectionString(), "ordering.order_placement_processes", cancellationToken));
+        Assert.Equal(1, await CountRowsAsync(
+            postgres.GetConnectionString(), "ordering.order_placement_lines", cancellationToken));
+        Assert.Equal(2, await CountRowsAsync(
             postgres.GetConnectionString(), "ordering.outbox_messages", cancellationToken));
 
         using var missingResponse = await client.GetAsync(
@@ -143,6 +147,10 @@ public sealed class OrderingEndpointTests
             Assert.Equal(1, await CountRowsAsync(
                 postgres.GetConnectionString(), "ordering.order_requests", cancellationToken));
             Assert.Equal(1, await CountRowsAsync(
+                postgres.GetConnectionString(), "ordering.order_placement_processes", cancellationToken));
+            Assert.Equal(1, await CountRowsAsync(
+                postgres.GetConnectionString(), "ordering.order_placement_lines", cancellationToken));
+            Assert.Equal(2, await CountRowsAsync(
                 postgres.GetConnectionString(), "ordering.outbox_messages", cancellationToken));
         }
         finally

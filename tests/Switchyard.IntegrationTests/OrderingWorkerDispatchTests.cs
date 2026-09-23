@@ -57,19 +57,19 @@ public sealed class OrderingWorkerDispatchTests
         string connectionString, DateTimeOffset now, CancellationToken cancellationToken)
     {
         await using var dbContext = CreateDbContext(connectionString);
-        var handler = new CreatePendingOrderHandler(
-            new EfOrderRepository(dbContext),
-            new EfOrderRequestRepository(dbContext),
-            new EfOrderingUnitOfWork(dbContext),
-            new EfOrderingOutboxStore(dbContext),
-            new PostgresOrderNumberGenerator(dbContext),
-            new FixedTimeProvider(now));
+        var store = new EfOrderingOutboxStore(dbContext);
 
-        await handler.HandleAsync(
-            new CreatePendingOrderCommand(
-                $"checkout-worker-{Guid.NewGuid():N}",
-                new[] { new CreatePendingOrderLine("BIKE-001", "Road Bike", 1, 1299.99m, "GBP") }),
+        await store.AddAsync(
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                "ordering.test-worker-dispatch.v1",
+                """{"test":true}""",
+                now,
+                Guid.NewGuid(),
+                causationId: null),
             cancellationToken);
+
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     private static OrderingDbContext CreateDbContext(string connectionString)
