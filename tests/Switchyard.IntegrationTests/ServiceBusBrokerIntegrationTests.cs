@@ -21,7 +21,7 @@ public sealed class ServiceBusBrokerIntegrationTests
         var connectionString = GetConnectionString();
         var envelope = new IntegrationMessageEnvelope(
             Guid.NewGuid(),
-            "inventory.servicebus-e2e.v1",
+            "inventory.event.servicebus-e2e.v1",
             """{"reservationId":"RES-E2E-001"}""",
             new DateTimeOffset(2026, 9, 23, 8, 0, 0, TimeSpan.Zero),
             Guid.NewGuid(),
@@ -82,7 +82,7 @@ public sealed class ServiceBusBrokerIntegrationTests
         var connectionString = GetConnectionString();
         var envelope = new IntegrationMessageEnvelope(
             Guid.NewGuid(),
-            "inventory.servicebus-e2e-retry.v1",
+            "inventory.event.servicebus-e2e-retry.v1",
             """{"reservationId":"RES-E2E-RETRY"}""",
             new DateTimeOffset(2026, 9, 23, 8, 5, 0, TimeSpan.Zero),
             Guid.NewGuid(),
@@ -170,7 +170,7 @@ public sealed class ServiceBusBrokerIntegrationTests
                 """{"reservationId":"RES-E2E-DLQ"}"""))
         {
             MessageId = invalidMessageId,
-            Subject = "inventory.servicebus-e2e-invalid.v1",
+            Subject = "inventory.event.servicebus-e2e-invalid.v1",
             ContentType = "application/json",
             CorrelationId = Guid.NewGuid().ToString("D")
         };
@@ -212,9 +212,8 @@ public sealed class ServiceBusBrokerIntegrationTests
             "InvalidEnvelope",
             deadLettered.DeadLetterReason);
 
-        await deadLetterReceiver.CompleteMessageAsync(
-            deadLettered,
-            cancellationToken);
+        // The disposable emulator is torn down after verification, so the
+        // terminal DLQ message does not need a second settlement operation.
     }
 
     private static ServiceBusInboundMessageProcessor CreateProcessor(

@@ -150,7 +150,9 @@ dotnet run --project src/Switchyard.Worker
 
 The local emulator defines an `ordering` subscription filtered to Inventory and Payments subjects. The Worker receives in PeekLock mode with automatic completion disabled. A message is completed only after its registered Ordering route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; the subscription `MaxDeliveryCount` provides the bounded redelivery limit.
 
-No Ordering workflow routes are registered yet. They enter with the durable order-placement process manager rather than inventing placeholder business contracts.
+Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
+
+Inventory and Payments workflow consumers are not part of this foundation slice yet. Ordering's Service Bus subscription is therefore restricted to `inventory.event.*` and `payments.event.*` subjects so outbound commands cannot loop back into the Ordering consumer.
 
 The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
 

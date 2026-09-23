@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Orders;
+using Switchyard.Ordering.Application.Placement;
 using Switchyard.Ordering.Domain.Orders;
 using Switchyard.Ordering.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
@@ -35,17 +36,28 @@ public sealed class OrderingOutboxTests
             postgres.GetConnectionString(),
             cancellationToken);
 
-        var row = Assert.Single(rows);
-        Assert.Equal(OrderAcceptedIntegrationMessageV1.MessageType, row.MessageType);
-        Assert.Equal(created.OrderId, row.CorrelationId);
-        Assert.Null(row.CausationId);
-        Assert.Equal(now, row.OccurredAtUtc);
-        Assert.Equal(now, row.AvailableAtUtc);
-        Assert.Equal(0, row.DeliveryAttemptCount);
-        Assert.Null(row.PublishedAtUtc);
+        Assert.Equal(2, rows.Count);
+
+        var accepted = Assert.Single(
+            rows,
+            row =>
+                row.MessageType ==
+                OrderAcceptedIntegrationMessageV1.MessageType);
+        var reserve = Assert.Single(
+            rows,
+            row =>
+                row.MessageType ==
+                ReserveInventoryV1.MessageType);
+
+        Assert.Equal(created.OrderId, accepted.CorrelationId);
+        Assert.Null(accepted.CausationId);
+        Assert.Equal(now, accepted.OccurredAtUtc);
+        Assert.Equal(now, accepted.AvailableAtUtc);
+        Assert.Equal(0, accepted.DeliveryAttemptCount);
+        Assert.Null(accepted.PublishedAtUtc);
 
         var payload = JsonSerializer.Deserialize<OrderAcceptedIntegrationMessageV1>(
-            row.PayloadJson,
+            accepted.PayloadJson,
             JsonSerializerOptions.Web);
 
         Assert.NotNull(payload);
@@ -53,6 +65,13 @@ public sealed class OrderingOutboxTests
         Assert.Equal(created.OrderNumber, payload.OrderNumber);
         Assert.Equal(created.TotalAmount, payload.TotalAmount);
         Assert.Equal(created.Currency, payload.Currency);
+
+        Assert.Equal(created.OrderId, reserve.CorrelationId);
+        Assert.Equal(accepted.MessageId, reserve.CausationId);
+        Assert.Equal(now, reserve.OccurredAtUtc);
+        Assert.Equal(now, reserve.AvailableAtUtc);
+        Assert.Equal(0, reserve.DeliveryAttemptCount);
+        Assert.Null(reserve.PublishedAtUtc);
     }
 
     [Fact]
@@ -283,17 +302,22 @@ public sealed class OrderingOutboxTests
         CancellationToken cancellationToken)
     {
         await using var dbContext = CreateDbContext(connectionString);
-        var handler = CreateOrderHandler(dbContext, now);
-        var result = await handler.HandleAsync(
-            CreateOrderCommand($"checkout-outbox-{Guid.NewGuid():N}"),
+        var store = new EfOrderingOutboxStore(dbContext);
+        var messageId = Guid.NewGuid();
+
+        await store.AddAsync(
+            new IntegrationMessageEnvelope(
+                messageId,
+                "ordering.test-outbox.v1",
+                """{"test":true}""",
+                now,
+                Guid.NewGuid(),
+                causationId: null),
             cancellationToken);
 
-        var rows = await ReadOutboxRowsAsync(connectionString, cancellationToken);
-        var row = Assert.Single(rows);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
-        Assert.Equal(result.OrderId, row.CorrelationId);
-
-        return row.MessageId;
+        return messageId;
     }
 
     private static CreatePendingOrderHandler CreateOrderHandler(
@@ -303,6 +327,7 @@ public sealed class OrderingOutboxTests
         return new CreatePendingOrderHandler(
             new EfOrderRepository(dbContext),
             new EfOrderRequestRepository(dbContext),
+            new EfOrderPlacementProcessRepository(dbContext),
             new EfOrderingUnitOfWork(dbContext),
             new EfOrderingOutboxStore(dbContext),
             new PostgresOrderNumberGenerator(dbContext),

@@ -17,6 +17,9 @@ public sealed class OrderingDbContext : DbContext
 
     internal DbSet<InboxMessageRecord> InboxMessages => Set<InboxMessageRecord>();
 
+    internal DbSet<OrderPlacementProcessRecord> OrderPlacementProcesses =>
+        Set<OrderPlacementProcessRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -103,6 +106,91 @@ public sealed class OrderingDbContext : DbContext
                     .WithOne()
                     .HasForeignKey<OrderRequestRecord>(record => record.OrderId)
                     .OnDelete(DeleteBehavior.Restrict);
+
+        var placementProcess = modelBuilder.Entity<OrderPlacementProcessRecord>();
+        placementProcess.ToTable(
+            "order_placement_processes",
+            "ordering",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_order_placement_process_state",
+                    "state BETWEEN 0 AND 8");
+                table.HasCheckConstraint(
+                    "ck_order_placement_process_times",
+                    "updated_at_utc >= started_at_utc");
+            });
+        placementProcess.HasKey(record => record.OrderId)
+                        .HasName("pk_order_placement_processes");
+        placementProcess.Property(record => record.OrderId)
+                        .HasColumnName("order_id");
+        placementProcess.Property(record => record.State)
+                        .HasColumnName("state")
+                        .HasConversion<int>()
+                        .IsRequired();
+        placementProcess.Property(record => record.StartedAtUtc)
+                        .HasColumnName("started_at_utc")
+                        .IsRequired();
+        placementProcess.Property(record => record.UpdatedAtUtc)
+                        .HasColumnName("updated_at_utc")
+                        .IsRequired();
+        placementProcess.HasOne<OrderRecord>()
+                        .WithOne()
+                        .HasForeignKey<OrderPlacementProcessRecord>(
+                            record => record.OrderId)
+                        .OnDelete(DeleteBehavior.Cascade);
+
+        var placementLine = modelBuilder.Entity<OrderPlacementLineRecord>();
+        placementLine.ToTable(
+            "order_placement_lines",
+            "ordering",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_order_placement_lines_sku",
+                    "btrim(sku_code) <> ''");
+                table.HasCheckConstraint(
+                    "ck_order_placement_lines_quantity",
+                    "quantity > 0");
+                table.HasCheckConstraint(
+                    "ck_order_placement_lines_state",
+                    "state BETWEEN 0 AND 4");
+                table.HasCheckConstraint(
+                    "ck_order_placement_lines_reservation_shape",
+                    "(state IN (0, 2) AND reservation_id IS NULL) OR " +
+                    "(state IN (1, 3, 4) AND reservation_id IS NOT NULL)");
+            });
+        placementLine.HasKey(record => new
+        {
+            record.OrderId,
+            record.OrderLineId
+        })
+                     .HasName("pk_order_placement_lines");
+        placementLine.Property(record => record.OrderId)
+                     .HasColumnName("order_id");
+        placementLine.Property(record => record.OrderLineId)
+                     .HasColumnName("order_line_id");
+        placementLine.Property(record => record.ReservationRequestId)
+                     .HasColumnName("reservation_request_id");
+        placementLine.Property(record => record.SkuCode)
+                     .HasColumnName("sku_code")
+                     .IsRequired();
+        placementLine.Property(record => record.Quantity)
+                     .HasColumnName("quantity");
+        placementLine.Property(record => record.State)
+                     .HasColumnName("state")
+                     .HasConversion<int>()
+                     .IsRequired();
+        placementLine.Property(record => record.ReservationId)
+                     .HasColumnName("reservation_id");
+        placementLine.HasIndex(record => record.ReservationRequestId)
+                     .IsUnique()
+                     .HasDatabaseName(
+                         "ux_order_placement_lines_reservation_request_id");
+        placementProcess.HasMany(record => record.Lines)
+                        .WithOne()
+                        .HasForeignKey(record => record.OrderId)
+                        .OnDelete(DeleteBehavior.Cascade);
 
         var outbox = modelBuilder.Entity<OutboxMessageRecord>();
         outbox.ToTable(

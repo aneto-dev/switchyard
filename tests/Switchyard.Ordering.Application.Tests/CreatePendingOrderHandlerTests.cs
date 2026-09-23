@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Orders;
+using Switchyard.Ordering.Application.Placement;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Domain.Orders;
 using Xunit;
@@ -10,56 +11,118 @@ namespace Switchyard.Ordering.Application.Tests;
 public sealed class CreatePendingOrderHandlerTests
 {
     [Fact]
-    public async Task CreatesAndPersistsPendingOrderFromOrderTimeSnapshots()
+    public async Task CreatesPendingOrderProcessAndInventoryReservationCommand()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var orderRepository = new RecordingOrderRepository();
         var requestRepository = new RecordingOrderRequestRepository();
+        var processRepository = new RecordingPlacementProcessRepository();
         var unitOfWork = new RecordingUnitOfWork();
         var outboxWriter = new RecordingOutboxWriter();
-        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
-        var now = new DateTimeOffset(2026, 9, 16, 19, 45, 0, TimeSpan.Zero);
+        var numberGenerator = new FixedOrderNumberGenerator(
+            new OrderNumber("SW-00100000"));
+        var now = new DateTimeOffset(
+            2026, 9, 16, 19, 45, 0, TimeSpan.Zero);
         var handler = CreateHandler(
-            orderRepository, requestRepository, unitOfWork, outboxWriter, numberGenerator, now);
+            orderRepository,
+            requestRepository,
+            processRepository,
+            unitOfWork,
+            outboxWriter,
+            numberGenerator,
+            now);
 
         var result = await handler.HandleAsync(
             CreateCommand("checkout-001", quantity: 2),
             cancellationToken);
 
-        Assert.NotNull(orderRepository.AddedOrder);
-        Assert.Equal(OrderStatus.Pending, orderRepository.AddedOrder!.Status);
-        Assert.Equal("SW-00100000", orderRepository.AddedOrder.OrderNumber.Value);
-        Assert.Equal(now, orderRepository.AddedOrder.CreatedAtUtc);
-        Assert.Equal("BIKE-001", orderRepository.AddedOrder.Lines[0].Product.SkuCode.Value);
-        Assert.Equal("Road Bike", orderRepository.AddedOrder.Lines[0].Product.ProductName);
-        Assert.Equal(2, orderRepository.AddedOrder.Lines[0].Quantity);
-        Assert.Equal(499.99m, orderRepository.AddedOrder.Lines[0].UnitPrice.Amount);
-        Assert.Equal("GBP", orderRepository.AddedOrder.Lines[0].UnitPrice.Currency);
-        Assert.Equal(999.98m, orderRepository.AddedOrder.Total.Amount);
+        var order = Assert.IsType<Order>(orderRepository.AddedOrder);
+        Assert.Equal(OrderStatus.Pending, order.Status);
+        Assert.Equal("SW-00100000", order.OrderNumber.Value);
+        Assert.Equal(now, order.CreatedAtUtc);
+        Assert.Equal("BIKE-001", order.Lines[0].Product.SkuCode.Value);
+        Assert.Equal("Road Bike", order.Lines[0].Product.ProductName);
+        Assert.Equal(2, order.Lines[0].Quantity);
+        Assert.Equal(499.99m, order.Lines[0].UnitPrice.Amount);
+        Assert.Equal("GBP", order.Lines[0].UnitPrice.Currency);
+        Assert.Equal(999.98m, order.Total.Amount);
+
         Assert.NotNull(requestRepository.AcceptedRequest);
-        Assert.Equal("checkout-001", requestRepository.AcceptedRequest!.IdempotencyKey);
-        Assert.Equal(orderRepository.AddedOrder.Id, requestRepository.AcceptedRequest.OrderId);
-        Assert.Equal(64, requestRepository.AcceptedRequest.RequestFingerprint.Length);
+        Assert.Equal(
+            "checkout-001",
+            requestRepository.AcceptedRequest!.IdempotencyKey);
+        Assert.Equal(
+            order.Id,
+            requestRepository.AcceptedRequest.OrderId);
+        Assert.Equal(
+            64,
+            requestRepository.AcceptedRequest.RequestFingerprint.Length);
+
+        var process = Assert.IsType<OrderPlacementProcess>(
+            processRepository.AddedProcess);
+        Assert.Equal(order.Id, process.OrderId);
+        Assert.Equal(OrderPlacementState.AwaitingInventory, process.State);
+        Assert.Equal(now, process.StartedAtUtc);
+        Assert.Equal(now, process.UpdatedAtUtc);
+
+        var placementLine = Assert.Single(process.Lines);
+        Assert.Equal(order.Lines[0].Id, placementLine.OrderLineId);
+        Assert.NotEqual(Guid.Empty, placementLine.ReservationRequestId);
+        Assert.Equal(
+            OrderPlacementLineState.AwaitingReservation,
+            placementLine.State);
+        Assert.Null(placementLine.ReservationId);
+
+        Assert.Equal(2, outboxWriter.Messages.Count);
+
+        var accepted = Assert.Single(
+            outboxWriter.Messages,
+            message =>
+                message.MessageType ==
+                OrderAcceptedIntegrationMessageV1.MessageType);
+        var reserve = Assert.Single(
+            outboxWriter.Messages,
+            message =>
+                message.MessageType ==
+                ReserveInventoryV1.MessageType);
+
+        Assert.Equal(order.Id.Value, accepted.CorrelationId);
+        Assert.Null(accepted.CausationId);
+        Assert.Equal(now, accepted.OccurredAtUtc);
+
+        var acceptedPayload =
+            JsonSerializer.Deserialize<OrderAcceptedIntegrationMessageV1>(
+                accepted.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(acceptedPayload);
+        Assert.Equal(order.Id.Value, acceptedPayload.OrderId);
+        Assert.Equal("SW-00100000", acceptedPayload.OrderNumber);
+        Assert.Equal(999.98m, acceptedPayload.TotalAmount);
+        Assert.Equal("GBP", acceptedPayload.Currency);
+
+        Assert.Equal(order.Id.Value, reserve.CorrelationId);
+        Assert.Equal(accepted.MessageId, reserve.CausationId);
+        Assert.Equal(now, reserve.OccurredAtUtc);
+
+        var reservePayload =
+            JsonSerializer.Deserialize<ReserveInventoryV1>(
+                reserve.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(reservePayload);
+        Assert.Equal(
+            placementLine.ReservationRequestId,
+            reservePayload.RequestId);
+        Assert.Equal(order.Id.Value, reservePayload.OrderId);
+        Assert.Equal(order.Lines[0].Id.Value, reservePayload.OrderLineId);
+        Assert.Equal("BIKE-001", reservePayload.SkuCode);
+        Assert.Equal(2, reservePayload.Quantity);
+
         Assert.Equal(1, unitOfWork.SaveCount);
         Assert.Equal(1, numberGenerator.CallCount);
 
-        var outboxMessage = Assert.Single(outboxWriter.Messages);
-        Assert.Equal(OrderAcceptedIntegrationMessageV1.MessageType, outboxMessage.MessageType);
-        Assert.Equal(orderRepository.AddedOrder.Id.Value, outboxMessage.CorrelationId);
-        Assert.Null(outboxMessage.CausationId);
-        Assert.Equal(now, outboxMessage.OccurredAtUtc);
-
-        var payload = JsonSerializer.Deserialize<OrderAcceptedIntegrationMessageV1>(
-            outboxMessage.PayloadJson,
-            JsonSerializerOptions.Web);
-
-        Assert.NotNull(payload);
-        Assert.Equal(orderRepository.AddedOrder.Id.Value, payload.OrderId);
-        Assert.Equal("SW-00100000", payload.OrderNumber);
-        Assert.Equal(999.98m, payload.TotalAmount);
-        Assert.Equal("GBP", payload.Currency);
-
-        Assert.Equal(orderRepository.AddedOrder.Id.Value, result.OrderId);
+        Assert.Equal(order.Id.Value, result.OrderId);
         Assert.Equal("SW-00100000", result.OrderNumber);
         Assert.Equal("Pending", result.Status);
         Assert.Equal(999.98m, result.TotalAmount);
@@ -69,16 +132,24 @@ public sealed class CreatePendingOrderHandlerTests
     }
 
     [Fact]
-    public async Task ReplaysSameRequestWithoutCreatingAnotherOrder()
+    public async Task ReplaysSameRequestWithoutCreatingAnotherProcessOrMessages()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var orderRepository = new RecordingOrderRepository();
         var requestRepository = new RecordingOrderRequestRepository();
+        var processRepository = new RecordingPlacementProcessRepository();
         var unitOfWork = new RecordingUnitOfWork();
         var outboxWriter = new RecordingOutboxWriter();
-        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
+        var numberGenerator = new FixedOrderNumberGenerator(
+            new OrderNumber("SW-00100000"));
         var handler = CreateHandler(
-            orderRepository, requestRepository, unitOfWork, outboxWriter, numberGenerator, DateTimeOffset.UnixEpoch);
+            orderRepository,
+            requestRepository,
+            processRepository,
+            unitOfWork,
+            outboxWriter,
+            numberGenerator,
+            DateTimeOffset.UnixEpoch);
         var command = CreateCommand("checkout-retry");
 
         var created = await handler.HandleAsync(command, cancellationToken);
@@ -87,11 +158,12 @@ public sealed class CreatePendingOrderHandlerTests
         Assert.Equal(created.OrderId, replayed.OrderId);
         Assert.Equal(created.OrderNumber, replayed.OrderNumber);
         Assert.True(replayed.Replayed);
-        Assert.Equal(1, unitOfWork.SaveCount);
-        Assert.Equal(1, numberGenerator.CallCount);
         Assert.Equal(1, orderRepository.AddCount);
         Assert.Equal(1, requestRepository.AddCount);
-        Assert.Single(outboxWriter.Messages);
+        Assert.Equal(1, processRepository.AddCount);
+        Assert.Equal(1, unitOfWork.SaveCount);
+        Assert.Equal(1, numberGenerator.CallCount);
+        Assert.Equal(2, outboxWriter.Messages.Count);
     }
 
     [Fact]
@@ -100,13 +172,23 @@ public sealed class CreatePendingOrderHandlerTests
         var cancellationToken = TestContext.Current.CancellationToken;
         var orderRepository = new RecordingOrderRepository();
         var requestRepository = new RecordingOrderRequestRepository();
+        var processRepository = new RecordingPlacementProcessRepository();
         var unitOfWork = new RecordingUnitOfWork();
         var outboxWriter = new RecordingOutboxWriter();
-        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100000"));
+        var numberGenerator = new FixedOrderNumberGenerator(
+            new OrderNumber("SW-00100000"));
         var handler = CreateHandler(
-            orderRepository, requestRepository, unitOfWork, outboxWriter, numberGenerator, DateTimeOffset.UnixEpoch);
+            orderRepository,
+            requestRepository,
+            processRepository,
+            unitOfWork,
+            outboxWriter,
+            numberGenerator,
+            DateTimeOffset.UnixEpoch);
 
-        await handler.HandleAsync(CreateCommand("checkout-conflict"), cancellationToken);
+        await handler.HandleAsync(
+            CreateCommand("checkout-conflict"),
+            cancellationToken);
 
         await Assert.ThrowsAsync<OrderRequestConflictException>(
             () => handler.HandleAsync(
@@ -117,7 +199,8 @@ public sealed class CreatePendingOrderHandlerTests
         Assert.Equal(1, numberGenerator.CallCount);
         Assert.Equal(1, orderRepository.AddCount);
         Assert.Equal(1, requestRepository.AddCount);
-        Assert.Single(outboxWriter.Messages);
+        Assert.Equal(1, processRepository.AddCount);
+        Assert.Equal(2, outboxWriter.Messages.Count);
     }
 
     [Fact]
@@ -126,24 +209,34 @@ public sealed class CreatePendingOrderHandlerTests
         var cancellationToken = TestContext.Current.CancellationToken;
         var orderRepository = new RecordingOrderRepository();
         var requestRepository = new RecordingOrderRequestRepository();
+        var processRepository = new RecordingPlacementProcessRepository();
         var unitOfWork = new RecordingUnitOfWork();
         var outboxWriter = new RecordingOutboxWriter();
-        var numberGenerator = new FixedOrderNumberGenerator(new OrderNumber("SW-00100001"));
+        var numberGenerator = new FixedOrderNumberGenerator(
+            new OrderNumber("SW-00100001"));
         var handler = CreateHandler(
-            orderRepository, requestRepository, unitOfWork, outboxWriter, numberGenerator, DateTimeOffset.UnixEpoch);
-
-        var command = new CreatePendingOrderCommand(
-            "checkout-invalid",
-            new[]
-            {
-                new CreatePendingOrderLine("BIKE-001", "Road Bike", 0, 499.99m, "GBP")
-            });
+            orderRepository,
+            requestRepository,
+            processRepository,
+            unitOfWork,
+            outboxWriter,
+            numberGenerator,
+            DateTimeOffset.UnixEpoch);
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
-            () => handler.HandleAsync(command, cancellationToken));
+            () => handler.HandleAsync(
+                new CreatePendingOrderCommand(
+                    "checkout-invalid",
+                    new[]
+                    {
+                        new CreatePendingOrderLine(
+                            "BIKE-001", "Road Bike", 0, 499.99m, "GBP")
+                    }),
+                cancellationToken));
 
         Assert.Null(orderRepository.AddedOrder);
         Assert.Null(requestRepository.AcceptedRequest);
+        Assert.Null(processRepository.AddedProcess);
         Assert.Equal(0, unitOfWork.SaveCount);
         Assert.Equal(0, numberGenerator.CallCount);
         Assert.Empty(outboxWriter.Messages);
@@ -152,37 +245,39 @@ public sealed class CreatePendingOrderHandlerTests
     private static CreatePendingOrderHandler CreateHandler(
         RecordingOrderRepository orderRepository,
         RecordingOrderRequestRepository requestRepository,
+        RecordingPlacementProcessRepository processRepository,
         RecordingUnitOfWork unitOfWork,
         RecordingOutboxWriter outboxWriter,
         FixedOrderNumberGenerator numberGenerator,
-        DateTimeOffset now)
-    {
-        return new CreatePendingOrderHandler(
+        DateTimeOffset now) =>
+        new(
             orderRepository,
             requestRepository,
+            processRepository,
             unitOfWork,
             outboxWriter,
             numberGenerator,
             new FixedTimeProvider(now));
-    }
 
-    private static CreatePendingOrderCommand CreateCommand(string idempotencyKey, int quantity = 1)
-    {
-        return new CreatePendingOrderCommand(
+    private static CreatePendingOrderCommand CreateCommand(
+        string idempotencyKey,
+        int quantity = 1) =>
+        new(
             idempotencyKey,
             new[]
             {
-                new CreatePendingOrderLine("BIKE-001", "Road Bike", quantity, 499.99m, "gbp")
+                new CreatePendingOrderLine(
+                    "BIKE-001", "Road Bike", quantity, 499.99m, "gbp")
             });
-    }
 
     private sealed class RecordingOrderRepository : IOrderRepository
     {
         public Order? AddedOrder { get; private set; }
-
         public int AddCount { get; private set; }
 
-        public Task AddAsync(Order order, CancellationToken cancellationToken)
+        public Task AddAsync(
+            Order order,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             AddedOrder = order;
@@ -190,7 +285,9 @@ public sealed class CreatePendingOrderHandlerTests
             return Task.CompletedTask;
         }
 
-        public Task<Order?> GetByIdAsync(OrderId orderId, CancellationToken cancellationToken)
+        public Task<Order?> GetByIdAsync(
+            OrderId orderId,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -201,14 +298,15 @@ public sealed class CreatePendingOrderHandlerTests
         }
     }
 
-    private sealed class RecordingOrderRequestRepository : IOrderRequestRepository
+    private sealed class RecordingOrderRequestRepository :
+        IOrderRequestRepository
     {
         public AcceptedOrderRequest? AcceptedRequest { get; private set; }
-
         public int AddCount { get; private set; }
 
         public Task<AcceptedOrderRequest?> GetByIdempotencyKeyAsync(
-            string idempotencyKey, CancellationToken cancellationToken)
+            string idempotencyKey,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -218,12 +316,43 @@ public sealed class CreatePendingOrderHandlerTests
                     : null);
         }
 
-        public Task AddAsync(AcceptedOrderRequest request, CancellationToken cancellationToken)
+        public Task AddAsync(
+            AcceptedOrderRequest request,
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             AcceptedRequest = request;
             AddCount++;
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingPlacementProcessRepository :
+        IOrderPlacementProcessRepository
+    {
+        public OrderPlacementProcess? AddedProcess { get; private set; }
+        public int AddCount { get; private set; }
+
+        public Task AddAsync(
+            OrderPlacementProcess process,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AddedProcess = process;
+            AddCount++;
+            return Task.CompletedTask;
+        }
+
+        public Task<OrderPlacementProcess?> GetByOrderIdAsync(
+            OrderId orderId,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                AddedProcess?.OrderId == orderId
+                    ? AddedProcess
+                    : null);
         }
     }
 
@@ -264,7 +393,8 @@ public sealed class CreatePendingOrderHandlerTests
 
         public int CallCount { get; private set; }
 
-        public Task<OrderNumber> NextAsync(CancellationToken cancellationToken)
+        public Task<OrderNumber> NextAsync(
+            CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             CallCount++;

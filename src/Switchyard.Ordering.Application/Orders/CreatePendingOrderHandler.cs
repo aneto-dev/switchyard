@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Switchyard.Messaging;
+using Switchyard.Ordering.Application.Placement;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Domain.Orders;
 
@@ -11,18 +12,24 @@ public sealed class CreatePendingOrderHandler
 
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderRequestRepository _orderRequestRepository;
+    private readonly IOrderPlacementProcessRepository _placementProcessRepository;
     private readonly IOrderingUnitOfWork _unitOfWork;
     private readonly IOutboxWriter _outboxWriter;
     private readonly IOrderNumberGenerator _orderNumberGenerator;
     private readonly TimeProvider _timeProvider;
 
     public CreatePendingOrderHandler(
-        IOrderRepository orderRepository, IOrderRequestRepository orderRequestRepository,
-        IOrderingUnitOfWork unitOfWork, IOutboxWriter outboxWriter,
-        IOrderNumberGenerator orderNumberGenerator, TimeProvider timeProvider)
+        IOrderRepository orderRepository,
+        IOrderRequestRepository orderRequestRepository,
+        IOrderPlacementProcessRepository placementProcessRepository,
+        IOrderingUnitOfWork unitOfWork,
+        IOutboxWriter outboxWriter,
+        IOrderNumberGenerator orderNumberGenerator,
+        TimeProvider timeProvider)
     {
         _orderRepository = orderRepository ?? throw new ArgumentNullException(nameof(orderRepository));
         _orderRequestRepository = orderRequestRepository ?? throw new ArgumentNullException(nameof(orderRequestRepository));
+        _placementProcessRepository = placementProcessRepository ?? throw new ArgumentNullException(nameof(placementProcessRepository));
         _unitOfWork = unitOfWork ?? throw new ArgumentNullException(nameof(unitOfWork));
         _outboxWriter = outboxWriter ?? throw new ArgumentNullException(nameof(outboxWriter));
         _orderNumberGenerator = orderNumberGenerator ?? throw new ArgumentNullException(nameof(orderNumberGenerator));
@@ -30,7 +37,8 @@ public sealed class CreatePendingOrderHandler
     }
 
     public async Task<CreatePendingOrderResult> HandleAsync(
-        CreatePendingOrderCommand command, CancellationToken cancellationToken)
+        CreatePendingOrderCommand command,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(command.Lines);
@@ -38,29 +46,48 @@ public sealed class CreatePendingOrderHandler
         var idempotencyKey = NormalizeIdempotencyKey(command.IdempotencyKey);
         var requestFingerprint = OrderRequestFingerprint.Calculate(command.Lines);
         var existingRequest = await _orderRequestRepository.GetByIdempotencyKeyAsync(
-            idempotencyKey, cancellationToken);
+            idempotencyKey,
+            cancellationToken);
 
         if (existingRequest is not null)
         {
             return await ResolveExistingRequestAsync(
-                existingRequest, requestFingerprint, cancellationToken);
+                existingRequest,
+                requestFingerprint,
+                cancellationToken);
         }
 
         var orderNumber = await _orderNumberGenerator.NextAsync(cancellationToken);
         var lines = command.Lines.Select(line => OrderLine.Create(
                                               OrderLineId.New(),
-                                              new ProductSnapshot(new SkuCode(line.SkuCode), line.ProductName),
+                                              new ProductSnapshot(
+                                                  new SkuCode(line.SkuCode),
+                                                  line.ProductName),
                                               line.Quantity,
-                                              new Money(line.UnitPriceAmount, line.Currency)))
+                                              new Money(
+                                                  line.UnitPriceAmount,
+                                                  line.Currency)))
                                  .ToArray();
         var acceptedAtUtc = _timeProvider.GetUtcNow();
-        var order = Order.Create(OrderId.New(), orderNumber, lines, acceptedAtUtc);
+        var order = Order.Create(
+            OrderId.New(),
+            orderNumber,
+            lines,
+            acceptedAtUtc);
         var acceptedRequest = new AcceptedOrderRequest(
-            idempotencyKey, requestFingerprint, order.Id, acceptedAtUtc);
+            idempotencyKey,
+            requestFingerprint,
+            order.Id,
+            acceptedAtUtc);
+        var placementProcess = OrderPlacementProcess.Start(
+            order,
+            acceptedAtUtc);
 
         await _orderRepository.AddAsync(order, cancellationToken);
         await _orderRequestRepository.AddAsync(acceptedRequest, cancellationToken);
+        await _placementProcessRepository.AddAsync(placementProcess, cancellationToken);
 
+        var orderAcceptedMessageId = Guid.NewGuid();
         var integrationMessage = new OrderAcceptedIntegrationMessageV1(
             order.Id.Value,
             order.OrderNumber.Value,
@@ -70,13 +97,37 @@ public sealed class CreatePendingOrderHandler
 
         await _outboxWriter.AddAsync(
             new IntegrationMessageEnvelope(
-                Guid.NewGuid(),
+                orderAcceptedMessageId,
                 OrderAcceptedIntegrationMessageV1.MessageType,
-                JsonSerializer.Serialize(integrationMessage, JsonSerializerOptions.Web),
+                JsonSerializer.Serialize(
+                    integrationMessage,
+                    JsonSerializerOptions.Web),
                 acceptedAtUtc,
                 order.Id.Value,
                 causationId: null),
             cancellationToken);
+
+        foreach (var line in placementProcess.Lines)
+        {
+            var reserveInventory = new ReserveInventoryV1(
+                line.ReservationRequestId,
+                order.Id.Value,
+                line.OrderLineId.Value,
+                line.SkuCode,
+                line.Quantity);
+
+            await _outboxWriter.AddAsync(
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    ReserveInventoryV1.MessageType,
+                    JsonSerializer.Serialize(
+                        reserveInventory,
+                        JsonSerializerOptions.Web),
+                    acceptedAtUtc,
+                    order.Id.Value,
+                    orderAcceptedMessageId),
+                cancellationToken);
+        }
 
         try
         {
@@ -85,7 +136,8 @@ public sealed class CreatePendingOrderHandler
         catch (DuplicateOrderRequestException)
         {
             var concurrentRequest = await _orderRequestRepository.GetByIdempotencyKeyAsync(
-                idempotencyKey, cancellationToken);
+                idempotencyKey,
+                cancellationToken);
 
             if (concurrentRequest is null)
             {
@@ -94,14 +146,17 @@ public sealed class CreatePendingOrderHandler
             }
 
             return await ResolveExistingRequestAsync(
-                concurrentRequest, requestFingerprint, cancellationToken);
+                concurrentRequest,
+                requestFingerprint,
+                cancellationToken);
         }
 
         return ToResult(order, replayed: false);
     }
 
     private async Task<CreatePendingOrderResult> ResolveExistingRequestAsync(
-        AcceptedOrderRequest existingRequest, string requestFingerprint,
+        AcceptedOrderRequest existingRequest,
+        string requestFingerprint,
         CancellationToken cancellationToken)
     {
         if (!string.Equals(
@@ -112,7 +167,9 @@ public sealed class CreatePendingOrderHandler
             throw new OrderRequestConflictException(existingRequest.IdempotencyKey);
         }
 
-        var order = await _orderRepository.GetByIdAsync(existingRequest.OrderId, cancellationToken);
+        var order = await _orderRepository.GetByIdAsync(
+            existingRequest.OrderId,
+            cancellationToken);
 
         if (order is null)
         {
@@ -123,7 +180,9 @@ public sealed class CreatePendingOrderHandler
         return ToResult(order, replayed: true);
     }
 
-    private static CreatePendingOrderResult ToResult(Order order, bool replayed)
+    private static CreatePendingOrderResult ToResult(
+        Order order,
+        bool replayed)
     {
         return new CreatePendingOrderResult(
             order.Id.Value,
@@ -139,7 +198,9 @@ public sealed class CreatePendingOrderHandler
     {
         if (string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            throw new ArgumentException("Idempotency key is required.", nameof(idempotencyKey));
+            throw new ArgumentException(
+                "Idempotency key is required.",
+                nameof(idempotencyKey));
         }
 
         var normalized = idempotencyKey.Trim();
