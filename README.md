@@ -57,7 +57,7 @@ Implemented so far:
 - official Azure Service Bus emulator configuration for local development
 - domain, application, API and architecture tests
 
-Inbound Service Bus handling and the durable order-placement process manager are still to come in v0.5.
+The Worker now includes inbound Service Bus receive and settlement infrastructure. Durable Ordering workflow routes and the order-placement process manager are still to come in v0.5.
 
 ## Architecture direction
 
@@ -148,7 +148,19 @@ Set the Ordering PostgreSQL connection string and local emulator connection stri
 dotnet run --project src/Switchyard.Worker
 ```
 
+The local emulator defines an `ordering` subscription filtered to Inventory and Payments subjects. The Worker receives in PeekLock mode with automatic completion disabled. A message is completed only after its registered Ordering route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; the subscription `MaxDeliveryCount` provides the bounded redelivery limit.
+
+No Ordering workflow routes are registered yet. They enter with the durable order-placement process manager rather than inventing placeholder business contracts.
+
 The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
+
+Real broker integration verification is opt-in because starting the Microsoft Service Bus emulator and SQL Server containers requires explicit licence acceptance:
+
+```powershell
+.\scripts\verify-servicebus-emulator.ps1 -AcceptEula -Runs 3
+```
+
+The verifier uses disposable containers, keeps `.env.example` at `SWITCHYARD_SERVICEBUS_ACCEPT_EULA=N`, uses alternate host ports by default and removes the emulator environment after the run. It verifies real publish/receive/complete, abandon/redelivery and dead-letter settlement through the Azure Service Bus SDK.
 ## Ordering API
 
 Create an order:

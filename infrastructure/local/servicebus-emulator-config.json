@@ -8,15 +8,41 @@
           {
             "Name": "switchyard-events",
             "Properties": {
-              "DefaultMessageTimeToLive": "P14D",
+              "DefaultMessageTimeToLive": "PT1H",
               "DuplicateDetectionHistoryTimeWindow": "PT20S",
               "RequiresDuplicateDetection": false
             },
-            "Subscriptions": []
+            "Subscriptions": [
+              {
+                "Name": "ordering",
+                "Properties": {
+                  "DeadLetteringOnMessageExpiration": true,
+                  "DefaultMessageTimeToLive": "PT1H",
+                  "LockDuration": "PT1M",
+                  "MaxDeliveryCount": 5,
+                  "ForwardDeadLetteredMessagesTo": "",
+                  "ForwardTo": "",
+                  "RequiresSession": false
+                },
+                "Rules": [
+                  {
+                    "Name": "ordering-inbound",
+                    "Properties": {
+                      "FilterType": "Sql",
+                      "SqlFilter": {
+                        "SqlExpression": "sys.label LIKE 'inventory.%' OR sys.label LIKE 'payments.%'"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
     ],
-    "Logging": { "Type": "Console" }
+    "Logging": {
+      "Type": "Console"
+    }
   }
 }

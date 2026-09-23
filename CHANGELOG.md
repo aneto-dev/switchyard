@@ -30,6 +30,8 @@ All notable Switchyard changes will be recorded here.
 - Lease-based outbox claiming with at-least-once dispatch and retry scheduling.
 - Transactional Ordering inbox with duplicate-safe local processing and atomic outbox handoff.
 - Dedicated Worker host and Azure Service Bus sender for continuous outbox dispatch.
+- Inbound Service Bus receiver with manual settlement, bounded retry and durable Ordering inbox routing.
+- Real Service Bus emulator integration coverage for publish/complete, abandon/redelivery and dead-letter settlement.
 
 ## [0.1.0] - 2026-09-16
 
