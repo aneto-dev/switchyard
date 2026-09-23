@@ -138,6 +138,10 @@ Invoke-Checked -Command "npm" -Arguments @("run", "typecheck")
 Invoke-Checked -Command "npm" -Arguments @("run", "build:web")
 
 Write-Host "`n=== DOCKER COMPOSE VALIDATION ===" -ForegroundColor Cyan
+Get-Content "infrastructure/local/servicebus-emulator-config.json" -Raw |
+    ConvertFrom-Json |
+    Out-Null
+
 Invoke-Checked -Command "docker" -Arguments @("compose", "-f", "infrastructure/local/compose.yml", "config", "--quiet")
 Invoke-Checked -Command "docker" -Arguments @("compose", "-f", "infrastructure/local/servicebus-emulator.compose.yml", "config", "--quiet")
 
@@ -149,7 +153,14 @@ try {
     }
 
     Write-Host "`n=== DOTNET TESTS ===" -ForegroundColor Cyan
-    Invoke-Checked -Command "dotnet" -Arguments @("test", "Switchyard.sln", "-c", "Release", "--no-build")
+    Invoke-Checked -Command "dotnet" -Arguments @(
+        "test",
+        "Switchyard.sln",
+        "-c",
+        "Release",
+        "--no-build",
+        "--filter",
+        "Category!=ServiceBusEmulator")
 }
 finally {
     if ($CleanupDockerCompose -and -not $SkipDockerComposeUp) {
