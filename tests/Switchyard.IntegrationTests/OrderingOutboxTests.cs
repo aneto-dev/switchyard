@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Switchyard.IntegrationContracts.Inventory;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Switchyard.Messaging;

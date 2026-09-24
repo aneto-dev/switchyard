@@ -12,6 +12,7 @@ public sealed class ServiceBusBrokerIntegrationTests
 
     private const string TopicName = "switchyard-events";
     private const string SubscriptionName = "ordering";
+    private const string InventorySubscriptionName = "inventory";
 
     [Fact]
     [Trait("Category", "ServiceBusEmulator")]
@@ -214,6 +215,90 @@ public sealed class ServiceBusBrokerIntegrationTests
 
         // The disposable emulator is torn down after verification, so the
         // terminal DLQ message does not need a second settlement operation.
+    }
+
+    [Fact]
+    [Trait("Category", "ServiceBusEmulator")]
+    public async Task InventoryCommandIsRoutedOnlyToInventorySubscription()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        var connectionString =
+            GetConnectionString();
+
+        var envelope =
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                "inventory.command.reserve.v1",
+                """{"requestId":"00000000-0000-0000-0000-000000000001"}""",
+                new DateTimeOffset(
+                    2026,
+                    9,
+                    23,
+                    20,
+                    50,
+                    0,
+                    TimeSpan.Zero),
+                Guid.NewGuid(),
+                Guid.NewGuid());
+
+        await using var client =
+            new ServiceBusClient(
+                connectionString);
+
+        await using var sender =
+            client.CreateSender(
+                TopicName);
+
+        await using var inventoryReceiver =
+            client.CreateReceiver(
+                TopicName,
+                InventorySubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        await using var orderingReceiver =
+            client.CreateReceiver(
+                TopicName,
+                SubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        var transport =
+            new ServiceBusMessageTransport(
+                sender);
+
+        await transport.PublishAsync(
+            envelope,
+            cancellationToken);
+
+        var inventoryDelivery =
+            await ReceiveExpectedAsync(
+                inventoryReceiver,
+                envelope.MessageId,
+                cancellationToken);
+
+        Assert.Equal(
+            envelope.MessageType,
+            inventoryDelivery.Subject);
+
+        await inventoryReceiver.CompleteMessageAsync(
+            inventoryDelivery,
+            cancellationToken);
+
+        var orderingDelivery =
+            await orderingReceiver.ReceiveMessageAsync(
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+        Assert.Null(orderingDelivery);
     }
 
     private static ServiceBusInboundMessageProcessor CreateProcessor(

@@ -1,50 +1,60 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Switchyard.Messaging.ServiceBus;
 
 namespace Switchyard.Worker;
 
 public sealed partial class ServiceBusSubscriptionWorker :
     BackgroundService
 {
-    private readonly ServiceBusProcessor _processor;
-    private readonly ServiceBusInboundMessageProcessor _messageProcessor;
+    private readonly ServiceBusSubscriptionEndpoint[] _endpoints;
     private readonly ILogger<ServiceBusSubscriptionWorker> _logger;
 
     public ServiceBusSubscriptionWorker(
-        ServiceBusProcessor processor,
-        ServiceBusInboundMessageProcessor messageProcessor,
+        IEnumerable<ServiceBusSubscriptionEndpoint> endpoints,
         ILogger<ServiceBusSubscriptionWorker> logger)
     {
-        _processor =
-            processor ?? throw new ArgumentNullException(nameof(processor));
+        ArgumentNullException.ThrowIfNull(endpoints);
 
-        _messageProcessor =
-            messageProcessor ??
-            throw new ArgumentNullException(nameof(messageProcessor));
+        _endpoints = endpoints.ToArray();
+
+        if (_endpoints.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "At least one Service Bus subscription endpoint is required.");
+        }
 
         _logger =
-            logger ?? throw new ArgumentNullException(nameof(logger));
+            logger ??
+            throw new ArgumentNullException(nameof(logger));
     }
 
     protected override async Task ExecuteAsync(
         CancellationToken stoppingToken)
     {
-        _processor.ProcessMessageAsync +=
-            _messageProcessor.ProcessAsync;
-
-        _processor.ProcessErrorAsync +=
-            ProcessErrorAsync;
-
-        var started = false;
+        var started =
+            new List<ServiceBusSubscriptionEndpoint>(
+                _endpoints.Length);
 
         try
         {
-            await _processor.StartProcessingAsync(
-                stoppingToken);
+            foreach (var endpoint in _endpoints)
+            {
+                endpoint.Processor.ProcessMessageAsync +=
+                    endpoint.MessageProcessor.ProcessAsync;
 
-            started = true;
+                endpoint.Processor.ProcessErrorAsync +=
+                    ProcessErrorAsync;
+
+                await endpoint.Processor.StartProcessingAsync(
+                    stoppingToken);
+
+                started.Add(endpoint);
+
+                LogEndpointStarted(
+                    _logger,
+                    endpoint.Name);
+            }
 
             await Task.Delay(
                 Timeout.InfiniteTimeSpan,
@@ -56,17 +66,24 @@ public sealed partial class ServiceBusSubscriptionWorker :
         }
         finally
         {
-            if (started)
+            foreach (var endpoint in started.AsEnumerable().Reverse())
             {
-                await _processor.StopProcessingAsync(
+                await endpoint.Processor.StopProcessingAsync(
                     CancellationToken.None);
+
+                LogEndpointStopped(
+                    _logger,
+                    endpoint.Name);
             }
 
-            _processor.ProcessMessageAsync -=
-                _messageProcessor.ProcessAsync;
+            foreach (var endpoint in _endpoints)
+            {
+                endpoint.Processor.ProcessMessageAsync -=
+                    endpoint.MessageProcessor.ProcessAsync;
 
-            _processor.ProcessErrorAsync -=
-                ProcessErrorAsync;
+                endpoint.Processor.ProcessErrorAsync -=
+                    ProcessErrorAsync;
+            }
         }
     }
 
@@ -83,6 +100,14 @@ public sealed partial class ServiceBusSubscriptionWorker :
     }
 
     [LoggerMessage(
+        EventId = 1100,
+        Level = LogLevel.Information,
+        Message = "Service Bus endpoint {EndpointName} started.")]
+    private static partial void LogEndpointStarted(
+        ILogger logger,
+        string endpointName);
+
+    [LoggerMessage(
         EventId = 1101,
         Level = LogLevel.Error,
         Message = "Service Bus processor error from {ErrorSource} on {EntityPath}.")]
@@ -91,4 +116,12 @@ public sealed partial class ServiceBusSubscriptionWorker :
         ServiceBusErrorSource errorSource,
         string entityPath,
         Exception exception);
+
+    [LoggerMessage(
+        EventId = 1102,
+        Level = LogLevel.Information,
+        Message = "Service Bus endpoint {EndpointName} stopped.")]
+    private static partial void LogEndpointStopped(
+        ILogger logger,
+        string endpointName);
 }

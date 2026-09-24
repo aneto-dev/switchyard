@@ -1,4 +1,4 @@
-namespace Switchyard.Ordering.Application.Placement;
+namespace Switchyard.IntegrationContracts.Inventory;
 
 public sealed record ReserveInventoryV1(
     Guid RequestId,

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Switchyard.IntegrationContracts.Inventory;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Placement;
 using Switchyard.Ordering.Application.Ports;
