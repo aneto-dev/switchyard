@@ -13,6 +13,10 @@ public sealed class InventoryDbContext : DbContext
 
     internal DbSet<StockItemRecord> StockItems => Set<StockItemRecord>();
     internal DbSet<ReservationRequestRecord> ReservationRequests => Set<ReservationRequestRecord>();
+    internal DbSet<InventoryOutboxMessageRecord> OutboxMessages =>
+        Set<InventoryOutboxMessageRecord>();
+    internal DbSet<InventoryInboxMessageRecord> InboxMessages =>
+        Set<InventoryInboxMessageRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,5 +90,144 @@ public sealed class InventoryDbContext : DbContext
             record.ExpiresAtUtc
         })
                .HasDatabaseName("ix_inventory_active_reservation_expiry");
+
+        var outbox = modelBuilder.Entity<InventoryOutboxMessageRecord>();
+        outbox.ToTable(
+            "outbox_messages",
+            "inventory",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_message_type",
+                    "btrim(message_type) <> ''");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_delivery_attempt_count",
+                    "delivery_attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_attempt_shape",
+                    "(delivery_attempt_count = 0 AND last_attempt_at_utc IS NULL) OR " +
+                    "(delivery_attempt_count > 0 AND last_attempt_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_lock_shape",
+                    "(lock_token IS NULL AND locked_until_utc IS NULL) OR " +
+                    "(lock_token IS NOT NULL AND locked_until_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_available_time",
+                    "available_at_utc >= occurred_at_utc");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_lock_time",
+                    "locked_until_utc IS NULL OR last_attempt_at_utc IS NOT NULL");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_published_time",
+                    "published_at_utc IS NULL OR published_at_utc >= occurred_at_utc");
+                table.HasCheckConstraint(
+                    "ck_inventory_outbox_published_not_locked",
+                    "published_at_utc IS NULL OR " +
+                    "(lock_token IS NULL AND locked_until_utc IS NULL)");
+            });
+        outbox.HasKey(record => record.MessageId)
+              .HasName("pk_inventory_outbox_messages");
+        outbox.Property(record => record.MessageId)
+              .HasColumnName("message_id");
+        outbox.Property(record => record.MessageType)
+              .HasColumnName("message_type")
+              .HasMaxLength(200)
+              .IsRequired();
+        outbox.Property(record => record.PayloadJson)
+              .HasColumnName("payload")
+              .HasColumnType("jsonb")
+              .IsRequired();
+        outbox.Property(record => record.OccurredAtUtc)
+              .HasColumnName("occurred_at_utc")
+              .IsRequired();
+        outbox.Property(record => record.CorrelationId)
+              .HasColumnName("correlation_id");
+        outbox.Property(record => record.CausationId)
+              .HasColumnName("causation_id");
+        outbox.Property(record => record.AvailableAtUtc)
+              .HasColumnName("available_at_utc")
+              .IsRequired();
+        outbox.Property(record => record.DeliveryAttemptCount)
+              .HasColumnName("delivery_attempt_count")
+              .HasDefaultValue(0)
+              .IsRequired();
+        outbox.Property(record => record.LastAttemptAtUtc)
+              .HasColumnName("last_attempt_at_utc");
+        outbox.Property(record => record.LockToken)
+              .HasColumnName("lock_token");
+        outbox.Property(record => record.LockedUntilUtc)
+              .HasColumnName("locked_until_utc");
+        outbox.Property(record => record.PublishedAtUtc)
+              .HasColumnName("published_at_utc");
+        outbox.Property(record => record.LastError)
+              .HasColumnName("last_error")
+              .HasMaxLength(200);
+        outbox.HasIndex(record => new
+        {
+            record.AvailableAtUtc,
+            record.LockedUntilUtc,
+            record.OccurredAtUtc
+        })
+              .HasDatabaseName("ix_inventory_outbox_due")
+              .HasFilter("published_at_utc IS NULL");
+
+        var inbox = modelBuilder.Entity<InventoryInboxMessageRecord>();
+        inbox.ToTable(
+            "inbox_messages",
+            "inventory",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_inventory_inbox_consumer_name",
+                    "btrim(consumer_name) <> ''");
+                table.HasCheckConstraint(
+                    "ck_inventory_inbox_message_type",
+                    "btrim(message_type) <> ''");
+                table.HasCheckConstraint(
+                    "ck_inventory_inbox_payload_hash",
+                    "char_length(payload_hash) = 64");
+                table.HasCheckConstraint(
+                    "ck_inventory_inbox_processed_time",
+                    "processed_at_utc >= received_at_utc");
+            });
+        inbox.HasKey(record => new
+        {
+            record.ConsumerName,
+            record.MessageId
+        })
+             .HasName("pk_inventory_inbox_messages");
+        inbox.Property(record => record.ConsumerName)
+             .HasColumnName("consumer_name")
+             .HasMaxLength(200)
+             .IsRequired();
+        inbox.Property(record => record.MessageId)
+             .HasColumnName("message_id");
+        inbox.Property(record => record.MessageType)
+             .HasColumnName("message_type")
+             .HasMaxLength(200)
+             .IsRequired();
+        inbox.Property(record => record.PayloadHash)
+             .HasColumnName("payload_hash")
+             .HasMaxLength(64)
+             .IsRequired();
+        inbox.Property(record => record.OccurredAtUtc)
+             .HasColumnName("occurred_at_utc")
+             .IsRequired();
+        inbox.Property(record => record.CorrelationId)
+             .HasColumnName("correlation_id");
+        inbox.Property(record => record.CausationId)
+             .HasColumnName("causation_id");
+        inbox.Property(record => record.ReceivedAtUtc)
+             .HasColumnName("received_at_utc")
+             .IsRequired();
+        inbox.Property(record => record.ProcessedAtUtc)
+             .HasColumnName("processed_at_utc")
+             .IsRequired();
+        inbox.HasIndex(record => new
+        {
+            record.ConsumerName,
+            record.ProcessedAtUtc
+        })
+             .HasDatabaseName("ix_inventory_inbox_consumer_processed");
     }
 }

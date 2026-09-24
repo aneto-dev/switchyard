@@ -30,7 +30,14 @@ public sealed class EfInventoryReservationStore : IInventoryReservationStore
             return ResolveExisting(existing, request);
         }
 
-        await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        var ownsTransaction =
+            _dbContext.Database.CurrentTransaction is null;
+
+        await using var transaction =
+            ownsTransaction
+                ? await _dbContext.Database.BeginTransactionAsync(
+                    cancellationToken)
+                : null;
 
         try
         {
@@ -49,11 +56,17 @@ public sealed class EfInventoryReservationStore : IInventoryReservationStore
 
             await _dbContext.ReservationRequests.AddAsync(record, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+
+            if (transaction is not null)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
 
             return ToDecision(record, replayed: false);
         }
-        catch (DbUpdateException exception) when (IsDuplicateRequest(exception))
+        catch (DbUpdateException exception)
+            when (transaction is not null &&
+                  IsDuplicateRequest(exception))
         {
             await transaction.RollbackAsync(cancellationToken);
             _dbContext.ChangeTracker.Clear();

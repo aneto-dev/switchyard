@@ -55,9 +55,11 @@ Implemented so far:
 - Azure.Messaging.ServiceBus sender adapter with stable message, correlation and causation metadata
 - Microsoft Entra authentication for cloud Service Bus and connection-string support for the local emulator
 - official Azure Service Bus emulator configuration for local development
+- durable Inventory inbox/outbox processing for reservation commands
+- versioned Inventory reserved/rejected events with correlation and causation metadata
 - domain, application, API and architecture tests
 
-The Worker now includes inbound Service Bus receive and settlement infrastructure. Durable Ordering workflow routes and the order-placement process manager are still to come in v0.5.
+The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.
 
 ## Architecture direction
 
@@ -132,7 +134,7 @@ npm run build:web
 
 ## Worker and local Service Bus
 
-`Switchyard.Worker` dispatches durable Ordering outbox messages to the `switchyard-events` Service Bus topic.
+`Switchyard.Worker` dispatches durable Ordering and Inventory outbox messages to the `switchyard-events` Service Bus topic.
 
 For the public Azure environment, configure `SWITCHYARD_SERVICEBUS_NAMESPACE` with the fully qualified namespace and use Microsoft Entra RBAC. Do not configure a cloud connection string.
 
@@ -142,17 +144,17 @@ For local development, Switchyard includes configuration for the official Azure 
 docker compose -f infrastructure/local/servicebus-emulator.compose.yml up -d
 ```
 
-Set the Ordering PostgreSQL connection string and local emulator connection string in the Worker process environment, then run:
+Set the Ordering and Inventory PostgreSQL connection strings and the local emulator connection string in the Worker process environment, then run:
 
 ```powershell
 dotnet run --project src/Switchyard.Worker
 ```
 
-The local emulator defines an `ordering` subscription filtered to Inventory and Payments subjects. The Worker receives in PeekLock mode with automatic completion disabled. A message is completed only after its registered Ordering route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; the subscription `MaxDeliveryCount` provides the bounded redelivery limit.
+The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects and an `inventory` subscription for `inventory.command.*` subjects. Both receive in PeekLock mode with automatic completion disabled. A message is completed only after its registered context route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
 
 Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
 
-Inventory and Payments workflow consumers are not part of this foundation slice yet. Ordering's Service Bus subscription is therefore restricted to `inventory.event.*` and `payments.event.*` subjects so outbound commands cannot loop back into the Ordering consumer.
+Inventory now consumes `inventory.command.reserve.v1` through its own Service Bus subscription. Reservation state, the durable Inventory inbox receipt and the resulting `inventory.event.reserved.v1` or `inventory.event.rejected.v1` outbox event commit within the Inventory consistency boundary. Ordering continues to receive only Inventory and Payments events; applying those Inventory outcomes to the placement process is the next workflow slice.
 
 The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
 
@@ -206,6 +208,7 @@ apps/
   operations-web/
 src/
   Switchyard.Api/
+  Switchyard.IntegrationContracts/
   Switchyard.Messaging/
   Switchyard.Messaging.ServiceBus/
   Switchyard.Worker/
