@@ -12,4 +12,12 @@ public interface IOrderPlacementProcessRepository
     Task<OrderPlacementProcess?> GetByOrderIdAsync(
         OrderId orderId,
         CancellationToken cancellationToken);
+
+    Task<OrderPlacementProcess?> GetByOrderIdForUpdateAsync(
+        OrderId orderId,
+        CancellationToken cancellationToken);
+
+    Task UpdateAsync(
+        OrderPlacementProcess process,
+        CancellationToken cancellationToken);
 }

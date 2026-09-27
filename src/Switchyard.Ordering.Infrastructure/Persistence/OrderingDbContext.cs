@@ -134,6 +134,8 @@ public sealed class OrderingDbContext : DbContext
         placementProcess.Property(record => record.UpdatedAtUtc)
                         .HasColumnName("updated_at_utc")
                         .IsRequired();
+        placementProcess.Property(record => record.PaymentAuthorisationRequestId)
+                        .HasColumnName("payment_authorisation_request_id");
         placementProcess.HasOne<OrderRecord>()
                         .WithOne()
                         .HasForeignKey<OrderPlacementProcessRecord>(

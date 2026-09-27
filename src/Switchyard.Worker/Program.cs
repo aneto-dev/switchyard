@@ -114,6 +114,12 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<OrderingInboundMessageConsumer>();
 builder.Services.AddSingleton<InventoryInboundMessageConsumer>();
 builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    InventoryReservedInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    InventoryRejectedInboundMessageRoute>();
+builder.Services.AddSingleton<
     IInventoryInboundMessageRoute,
     ReserveInventoryInboundMessageRoute>();
 

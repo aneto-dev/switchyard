@@ -80,5 +80,10 @@ public sealed class GetOrderHandlerTests
             GetCount++;
             return Task.FromResult(_order);
         }
+
+        public Task UpdateAsync(Order order, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
     }
 }
