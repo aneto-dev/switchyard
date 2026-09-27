@@ -13,6 +13,8 @@ public sealed class ServiceBusBrokerIntegrationTests
     private const string TopicName = "switchyard-events";
     private const string SubscriptionName = "ordering";
     private const string InventorySubscriptionName = "inventory";
+    private const string InventoryReleaseSubscriptionName = "inventory-release";
+    private const string PaymentsSubscriptionName = "payments";
 
     [Fact]
     [Trait("Category", "ServiceBusEmulator")]
@@ -291,6 +293,174 @@ public sealed class ServiceBusBrokerIntegrationTests
 
         await inventoryReceiver.CompleteMessageAsync(
             inventoryDelivery,
+            cancellationToken);
+
+        var orderingDelivery =
+            await orderingReceiver.ReceiveMessageAsync(
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+        Assert.Null(orderingDelivery);
+    }
+
+    [Fact]
+    [Trait("Category", "ServiceBusEmulator")]
+    public async Task ReleaseInventoryCommandIsBufferedOutsideActiveInventorySubscription()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        var connectionString =
+            GetConnectionString();
+
+        var envelope =
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                "inventory.command.release.v1",
+                """{"reservationId":"00000000-0000-0000-0000-000000000001"}""",
+                new DateTimeOffset(
+                    2026,
+                    9,
+                    24,
+                    14,
+                    55,
+                    0,
+                    TimeSpan.Zero),
+                Guid.NewGuid(),
+                Guid.NewGuid());
+
+        await using var client =
+            new ServiceBusClient(
+                connectionString);
+
+        await using var sender =
+            client.CreateSender(
+                TopicName);
+
+        await using var releaseBufferReceiver =
+            client.CreateReceiver(
+                TopicName,
+                InventoryReleaseSubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        await using var activeInventoryReceiver =
+            client.CreateReceiver(
+                TopicName,
+                InventorySubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        var transport =
+            new ServiceBusMessageTransport(
+                sender);
+
+        await transport.PublishAsync(
+            envelope,
+            cancellationToken);
+
+        var releaseDelivery =
+            await ReceiveExpectedAsync(
+                releaseBufferReceiver,
+                envelope.MessageId,
+                cancellationToken);
+
+        Assert.Equal(
+            envelope.MessageType,
+            releaseDelivery.Subject);
+
+        await releaseBufferReceiver.CompleteMessageAsync(
+            releaseDelivery,
+            cancellationToken);
+
+        var activeInventoryDelivery =
+            await activeInventoryReceiver.ReceiveMessageAsync(
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+        Assert.Null(activeInventoryDelivery);
+    }
+
+    [Fact]
+    [Trait("Category", "ServiceBusEmulator")]
+    public async Task PaymentCommandIsRoutedOnlyToPaymentsSubscription()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        var connectionString =
+            GetConnectionString();
+
+        var envelope =
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                "payments.command.authorise.v1",
+                """{"requestId":"00000000-0000-0000-0000-000000000001"}""",
+                new DateTimeOffset(
+                    2026,
+                    9,
+                    24,
+                    15,
+                    0,
+                    0,
+                    TimeSpan.Zero),
+                Guid.NewGuid(),
+                Guid.NewGuid());
+
+        await using var client =
+            new ServiceBusClient(
+                connectionString);
+
+        await using var sender =
+            client.CreateSender(
+                TopicName);
+
+        await using var paymentsReceiver =
+            client.CreateReceiver(
+                TopicName,
+                PaymentsSubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        await using var orderingReceiver =
+            client.CreateReceiver(
+                TopicName,
+                SubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        var transport =
+            new ServiceBusMessageTransport(
+                sender);
+
+        await transport.PublishAsync(
+            envelope,
+            cancellationToken);
+
+        var paymentsDelivery =
+            await ReceiveExpectedAsync(
+                paymentsReceiver,
+                envelope.MessageId,
+                cancellationToken);
+
+        Assert.Equal(
+            envelope.MessageType,
+            paymentsDelivery.Subject);
+
+        await paymentsReceiver.CompleteMessageAsync(
+            paymentsDelivery,
             cancellationToken);
 
         var orderingDelivery =

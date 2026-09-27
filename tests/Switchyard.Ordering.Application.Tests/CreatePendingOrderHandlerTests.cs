@@ -297,6 +297,15 @@ public sealed class CreatePendingOrderHandlerTests
                     ? AddedOrder
                     : null);
         }
+
+        public Task UpdateAsync(
+            Order order,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AddedOrder = order;
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class RecordingOrderRequestRepository :
@@ -354,6 +363,24 @@ public sealed class CreatePendingOrderHandlerTests
                 AddedProcess?.OrderId == orderId
                     ? AddedProcess
                     : null);
+        }
+
+        public Task<OrderPlacementProcess?> GetByOrderIdForUpdateAsync(
+            OrderId orderId,
+            CancellationToken cancellationToken)
+        {
+            return GetByOrderIdAsync(
+                orderId,
+                cancellationToken);
+        }
+
+        public Task UpdateAsync(
+            OrderPlacementProcess process,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            AddedProcess = process;
+            return Task.CompletedTask;
         }
     }
 

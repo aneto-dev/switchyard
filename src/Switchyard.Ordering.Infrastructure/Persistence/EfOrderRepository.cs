@@ -76,4 +76,27 @@ public sealed class EfOrderRepository : IOrderRepository
             record.CreatedAtUtc,
             record.Status);
     }
+
+    public async Task UpdateAsync(
+        Order order,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(order);
+
+        var record =
+            await _dbContext.Orders
+                .SingleOrDefaultAsync(
+                    candidate =>
+                        candidate.Id ==
+                        order.Id.Value,
+                    cancellationToken);
+
+        if (record is null)
+        {
+            throw new InvalidOperationException(
+                $"Order '{order.Id.Value}' does not exist.");
+        }
+
+        record.Status = order.Status;
+    }
 }

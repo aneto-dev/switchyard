@@ -8,5 +8,6 @@ internal sealed class OrderPlacementProcessRecord
     public OrderPlacementState State { get; set; }
     public DateTimeOffset StartedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
+    public Guid? PaymentAuthorisationRequestId { get; set; }
     public List<OrderPlacementLineRecord> Lines { get; } = [];
 }
