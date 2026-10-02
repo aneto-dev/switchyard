@@ -161,6 +161,9 @@ public sealed class OrderingDbContext : DbContext
                     "ck_order_placement_lines_reservation_shape",
                     "(state IN (0, 2) AND reservation_id IS NULL) OR " +
                     "(state IN (1, 3, 4, 5) AND reservation_id IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_order_placement_lines_reservation_expiry_shape",
+                    "reservation_expires_at_utc IS NULL OR reservation_id IS NOT NULL");
             });
         placementLine.HasKey(record => new
         {
@@ -185,6 +188,8 @@ public sealed class OrderingDbContext : DbContext
                      .IsRequired();
         placementLine.Property(record => record.ReservationId)
                      .HasColumnName("reservation_id");
+        placementLine.Property(record => record.ReservationExpiresAtUtc)
+                     .HasColumnName("reservation_expires_at_utc");
         placementLine.HasIndex(record => record.ReservationRequestId)
                      .IsUnique()
                      .HasDatabaseName(

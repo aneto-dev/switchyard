@@ -81,7 +81,10 @@ public sealed class InventoryReservedInboundMessageRoute :
             outcome.OrderLineId == Guid.Empty ||
             outcome.ReservationId == Guid.Empty ||
             string.IsNullOrWhiteSpace(outcome.SkuCode) ||
-            outcome.Quantity <= 0)
+            outcome.Quantity <= 0 ||
+            outcome.ReservedAtUtc == default ||
+            outcome.ExpiresAtUtc == default ||
+            outcome.ExpiresAtUtc <= outcome.ReservedAtUtc)
         {
             throw new NonRetryableIntegrationMessageException(
                 "Inventory reserved outcome contains invalid required fields.");

@@ -37,6 +37,7 @@ All notable Switchyard changes will be recorded here.
 - Ordering Inventory-outcome progression with stable payment request identity, payment gating and explicit release compensation commands.
 - Durable Inventory release-command consumption with inbox/outbox-backed released and expired outcomes.
 - Ordering compensation completion after verified Inventory release or expiry outcomes.
+- Ordering reservation-validity gating before payment authorisation, with persisted expiry deadlines, legacy-safe schema evolution and earliest-deadline propagation on payment commands.
 
 ## [0.1.0] - 2026-09-16
 
