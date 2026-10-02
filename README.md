@@ -61,6 +61,8 @@ Implemented so far:
 - payment authorisation commands only after every order line is reserved
 - stable payment authorisation request identity persisted with the placement process
 - explicit Inventory release commands for rejection compensation, including late reservations
+- durable Inventory release-command consumption with atomic inbox, reservation lifecycle and outbox handling
+- released/expired Inventory outcomes that complete Ordering compensation before the order fails
 - domain, application, API and architecture tests
 
 The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.
@@ -154,7 +156,7 @@ Set the Ordering and Inventory PostgreSQL connection strings and the local emula
 dotnet run --project src/Switchyard.Worker
 ```
 
-The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects and an active `inventory` subscription for `inventory.command.reserve.v1`. A separate `inventory-release` subscription buffers `inventory.command.release.v1` until the release-consumer slice is wired, while the `payments` subscription buffers `payments.command.*` until the Payments consumer slice is wired. Ordering and the active Inventory reserve consumer currently receive in PeekLock mode with automatic completion disabled. A message is completed only after its registered context route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
+The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1` and a `payments` subscription that buffers `payments.command.*` until the Payments consumer slice is wired. Ordering and both active Inventory consumers receive in PeekLock mode with automatic completion disabled. A message is completed only after its registered context route succeeds through the durable inbox transaction. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
 
 Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
 
@@ -162,7 +164,7 @@ Inventory consumes `inventory.command.reserve.v1` through its own Service Bus su
 
 Ordering now consumes those Inventory outcomes through its durable inbox. Per-order process updates are serialized with a PostgreSQL row lock so concurrent line outcomes cannot lose state. When every line is reserved, Ordering persists the stable payment authorisation request identity, moves the process to `AwaitingPayment` and atomically writes `payments.command.authorise.v1`. A rejection moves the process into compensation, marks already reserved lines `AwaitingRelease` and writes `inventory.command.release.v1`; a reservation that arrives after compensation has started is immediately scheduled for release. If every line is rejected before any reservation needs compensation, the order and process fail without requesting payment.
 
-Inventory release-command consumption and the released/expired outcome that completes compensation remain the next workflow slice. Until then, the local `inventory-release` subscription keeps release commands away from the active reserve-only Inventory consumer so they are not dead-lettered as unsupported. Payments command consumption follows after that.
+Inventory consumes `inventory.command.release.v1` through the dedicated `inventory-release` subscription. Reservation release state, the durable Inventory inbox receipt and the resulting `inventory.event.released.v1` or `inventory.event.expired.v1` outbox event commit within one Inventory transaction. The release command carries the original reservation request ID so Inventory can verify that the request, order and reservation belong together before returning stock. Released and expired events report the persisted release or expiry time rather than the later observation time. Ordering consumes those outcomes through its durable inbox and marks compensation complete only for the matching reservation request; once every compensation obligation is satisfied, the placement process and Pending order move to `Failed`. Payments command consumption remains the next workflow slice.
 
 The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
 
@@ -172,7 +174,7 @@ Real broker integration verification is opt-in because starting the Microsoft Se
 .\scripts\verify-servicebus-emulator.ps1 -AcceptEula -Runs 3
 ```
 
-The verifier uses disposable containers, keeps `.env.example` at `SWITCHYARD_SERVICEBUS_ACCEPT_EULA=N`, uses alternate host ports by default and removes the emulator environment after the run. It verifies real publish/receive/complete, abandon/redelivery, dead-letter settlement, reserve-command routing, release-command buffering and Payments command routing through the Azure Service Bus SDK.
+The verifier uses disposable containers, keeps `.env.example` at `SWITCHYARD_SERVICEBUS_ACCEPT_EULA=N`, uses alternate host ports by default and removes the emulator environment after the run. It verifies real publish/receive/complete, abandon/redelivery, dead-letter settlement, reserve-command routing, release-command routing and Payments command routing through the Azure Service Bus SDK.
 ## Ordering API
 
 Create an order:

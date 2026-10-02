@@ -107,6 +107,70 @@ public sealed class OrderingInventoryOutcomeHandler
             cancellationToken);
     }
 
+    public async Task HandleReleasedAsync(
+        InventoryReleasedV1 outcome,
+        Guid causationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        if (causationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Causation ID cannot be empty.",
+                nameof(causationId));
+        }
+
+        var process =
+            await LoadProcessForUpdateAsync(
+                outcome.OrderId,
+                cancellationToken);
+
+        var transition =
+            process.RecordInventoryReleased(
+                outcome.RequestId,
+                outcome.ReservationId,
+                _timeProvider.GetUtcNow());
+
+        await ApplyTransitionAsync(
+            process,
+            transition,
+            causationId,
+            cancellationToken);
+    }
+
+    public async Task HandleExpiredAsync(
+        InventoryExpiredV1 outcome,
+        Guid causationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(outcome);
+
+        if (causationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Causation ID cannot be empty.",
+                nameof(causationId));
+        }
+
+        var process =
+            await LoadProcessForUpdateAsync(
+                outcome.OrderId,
+                cancellationToken);
+
+        var transition =
+            process.RecordInventoryExpired(
+                outcome.RequestId,
+                outcome.ReservationId,
+                _timeProvider.GetUtcNow());
+
+        await ApplyTransitionAsync(
+            process,
+            transition,
+            causationId,
+            cancellationToken);
+    }
+
     private async Task<OrderPlacementProcess> LoadProcessForUpdateAsync(
         Guid orderId,
         CancellationToken cancellationToken)
@@ -143,8 +207,8 @@ public sealed class OrderingInventoryOutcomeHandler
         {
             var command =
                 new ReleaseInventoryReservationV1(
+                    release.ReservationRequestId,
                     process.OrderId.Value,
-                    release.OrderLineId.Value,
                     release.ReservationId,
                     ReleaseInventoryReservationV1.CompensationReason);
 

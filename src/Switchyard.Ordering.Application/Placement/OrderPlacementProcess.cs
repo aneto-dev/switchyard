@@ -84,6 +84,14 @@ public sealed class OrderPlacementProcess
             quantity);
         var line = _lines[index];
 
+        if (line.State is (
+                OrderPlacementLineState.Released or
+                OrderPlacementLineState.Expired) &&
+            line.ReservationId == reservationId)
+        {
+            return OrderPlacementInventoryTransition.None;
+        }
+
         if (line.State == OrderPlacementLineState.AwaitingRelease &&
             line.ReservationId == reservationId)
         {
@@ -109,7 +117,7 @@ public sealed class OrderPlacementProcess
                     new[]
                     {
                         new OrderPlacementRelease(
-                            line.OrderLineId,
+                            line.ReservationRequestId,
                             reservationId)
                     });
             }
@@ -168,7 +176,7 @@ public sealed class OrderPlacementProcess
                 new[]
                 {
                     new OrderPlacementRelease(
-                        line.OrderLineId,
+                        line.ReservationRequestId,
                         reservationId)
                 });
         }
@@ -241,15 +249,17 @@ public sealed class OrderPlacementProcess
 
             releases.Add(
                 new OrderPlacementRelease(
-                    candidate.OrderLineId,
+                    candidate.ReservationRequestId,
                     reservationId));
         }
 
         var failPlacement =
             _lines.All(
                 candidate =>
-                    candidate.State ==
-                    OrderPlacementLineState.Rejected);
+                    candidate.State is
+                        OrderPlacementLineState.Rejected or
+                        OrderPlacementLineState.Released or
+                        OrderPlacementLineState.Expired);
 
         if (failPlacement)
         {
@@ -263,6 +273,30 @@ public sealed class OrderPlacementProcess
             AuthorisePayment: false,
             FailPlacement: failPlacement,
             releases.AsReadOnly());
+    }
+
+    public OrderPlacementInventoryTransition RecordInventoryReleased(
+        Guid requestId,
+        Guid reservationId,
+        DateTimeOffset updatedAtUtc)
+    {
+        return RecordInventoryCompensationCompleted(
+            requestId,
+            reservationId,
+            OrderPlacementLineState.Released,
+            updatedAtUtc);
+    }
+
+    public OrderPlacementInventoryTransition RecordInventoryExpired(
+        Guid requestId,
+        Guid reservationId,
+        DateTimeOffset updatedAtUtc)
+    {
+        return RecordInventoryCompensationCompleted(
+            requestId,
+            reservationId,
+            OrderPlacementLineState.Expired,
+            updatedAtUtc);
     }
 
     public static OrderPlacementProcess Rehydrate(
@@ -344,6 +378,109 @@ public sealed class OrderPlacementProcess
             startedAtUtc,
             updatedAtUtc,
             materializedLines);
+    }
+
+    private OrderPlacementInventoryTransition RecordInventoryCompensationCompleted(
+        Guid requestId,
+        Guid reservationId,
+        OrderPlacementLineState completedState,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (reservationId == Guid.Empty)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                "Inventory compensation outcome requires a reservation ID.");
+        }
+
+        if (completedState is not (
+            OrderPlacementLineState.Released or
+            OrderPlacementLineState.Expired))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(completedState),
+                completedState,
+                "Inventory compensation completion state is invalid.");
+        }
+
+        var index =
+            FindLineIndex(
+                requestId);
+
+        var line =
+            _lines[index];
+
+        if (line.State == completedState &&
+            line.ReservationId == reservationId)
+        {
+            return OrderPlacementInventoryTransition.None;
+        }
+
+        if (State != OrderPlacementState.CompensatingInventory)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                $"Inventory compensation outcome cannot advance process state '{State}'.");
+        }
+
+        if (line.State != OrderPlacementLineState.AwaitingRelease ||
+            line.ReservationId != reservationId)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                "Inventory compensation outcome does not match the awaited reservation release.");
+        }
+
+        _lines[index] =
+            RehydrateLine(
+                line,
+                completedState,
+                reservationId);
+
+        var failPlacement =
+            _lines.All(
+                candidate =>
+                    candidate.State is
+                        OrderPlacementLineState.Rejected or
+                        OrderPlacementLineState.Released or
+                        OrderPlacementLineState.Expired);
+
+        if (failPlacement)
+        {
+            State =
+                OrderPlacementState.Failed;
+        }
+
+        Touch(
+            updatedAtUtc);
+
+        return new OrderPlacementInventoryTransition(
+            Changed: true,
+            AuthorisePayment: false,
+            FailPlacement: failPlacement,
+            Array.Empty<OrderPlacementRelease>());
+    }
+
+    private int FindLineIndex(
+        Guid requestId)
+    {
+        if (requestId == Guid.Empty)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                "Inventory outcome request ID cannot be empty.");
+        }
+
+        var index =
+            Array.FindIndex(
+                _lines,
+                line =>
+                    line.ReservationRequestId ==
+                    requestId);
+
+        if (index < 0)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                $"Reservation request '{requestId}' does not belong to placement '{OrderId.Value}'.");
+        }
+
+        return index;
     }
 
     private int FindLineIndex(

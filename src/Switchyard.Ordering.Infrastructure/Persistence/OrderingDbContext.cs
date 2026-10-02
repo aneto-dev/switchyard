@@ -156,11 +156,11 @@ public sealed class OrderingDbContext : DbContext
                     "quantity > 0");
                 table.HasCheckConstraint(
                     "ck_order_placement_lines_state",
-                    "state BETWEEN 0 AND 4");
+                    "state BETWEEN 0 AND 5");
                 table.HasCheckConstraint(
                     "ck_order_placement_lines_reservation_shape",
                     "(state IN (0, 2) AND reservation_id IS NULL) OR " +
-                    "(state IN (1, 3, 4) AND reservation_id IS NOT NULL)");
+                    "(state IN (1, 3, 4, 5) AND reservation_id IS NOT NULL)");
             });
         placementLine.HasKey(record => new
         {

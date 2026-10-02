@@ -305,7 +305,7 @@ public sealed class ServiceBusBrokerIntegrationTests
 
     [Fact]
     [Trait("Category", "ServiceBusEmulator")]
-    public async Task ReleaseInventoryCommandIsBufferedOutsideActiveInventorySubscription()
+    public async Task ReleaseInventoryCommandIsRoutedOnlyToReleaseSubscription()
     {
         var cancellationToken =
             TestContext.Current.CancellationToken;

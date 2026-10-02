@@ -1,8 +1,8 @@
 namespace Switchyard.IntegrationContracts.Inventory;
 
 public sealed record ReleaseInventoryReservationV1(
+    Guid RequestId,
     Guid OrderId,
-    Guid OrderLineId,
     Guid ReservationId,
     string Reason)
 {

@@ -35,6 +35,8 @@ All notable Switchyard changes will be recorded here.
 - Durable Ordering order-placement process foundation with per-line inventory reservation commands.
 - Durable Inventory reserve-command consumption with inbox/outbox-backed reserved and rejected events.
 - Ordering Inventory-outcome progression with stable payment request identity, payment gating and explicit release compensation commands.
+- Durable Inventory release-command consumption with inbox/outbox-backed released and expired outcomes.
+- Ordering compensation completion after verified Inventory release or expiry outcomes.
 
 ## [0.1.0] - 2026-09-16
 
