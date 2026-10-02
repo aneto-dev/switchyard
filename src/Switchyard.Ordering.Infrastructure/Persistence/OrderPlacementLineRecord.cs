@@ -11,4 +11,5 @@ internal sealed class OrderPlacementLineRecord
     public int Quantity { get; set; }
     public OrderPlacementLineState State { get; set; }
     public Guid? ReservationId { get; set; }
+    public DateTimeOffset? ReservationExpiresAtUtc { get; set; }
 }

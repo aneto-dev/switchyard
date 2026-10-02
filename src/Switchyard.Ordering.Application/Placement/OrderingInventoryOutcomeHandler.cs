@@ -56,6 +56,9 @@ public sealed class OrderingInventoryOutcomeHandler
                 outcome.OrderId,
                 cancellationToken);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordInventoryReserved(
                 outcome.RequestId,
@@ -63,13 +66,15 @@ public sealed class OrderingInventoryOutcomeHandler
                 outcome.SkuCode,
                 outcome.Quantity,
                 outcome.ReservationId,
+                outcome.ExpiresAtUtc,
                 Guid.NewGuid(),
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         await ApplyTransitionAsync(
             process,
             transition,
             causationId,
+            handledAtUtc,
             cancellationToken);
     }
 
@@ -92,18 +97,22 @@ public sealed class OrderingInventoryOutcomeHandler
                 outcome.OrderId,
                 cancellationToken);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordInventoryRejected(
                 outcome.RequestId,
                 new OrderLineId(outcome.OrderLineId),
                 outcome.SkuCode,
                 outcome.Quantity,
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         await ApplyTransitionAsync(
             process,
             transition,
             causationId,
+            handledAtUtc,
             cancellationToken);
     }
 
@@ -126,16 +135,20 @@ public sealed class OrderingInventoryOutcomeHandler
                 outcome.OrderId,
                 cancellationToken);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordInventoryReleased(
                 outcome.RequestId,
                 outcome.ReservationId,
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         await ApplyTransitionAsync(
             process,
             transition,
             causationId,
+            handledAtUtc,
             cancellationToken);
     }
 
@@ -158,16 +171,20 @@ public sealed class OrderingInventoryOutcomeHandler
                 outcome.OrderId,
                 cancellationToken);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordInventoryExpired(
                 outcome.RequestId,
                 outcome.ReservationId,
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         await ApplyTransitionAsync(
             process,
             transition,
             causationId,
+            handledAtUtc,
             cancellationToken);
     }
 
@@ -189,6 +206,7 @@ public sealed class OrderingInventoryOutcomeHandler
         OrderPlacementProcess process,
         OrderPlacementInventoryTransition transition,
         Guid causationId,
+        DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken)
     {
         if (!transition.Changed)
@@ -201,7 +219,7 @@ public sealed class OrderingInventoryOutcomeHandler
             cancellationToken);
 
         var now =
-            _timeProvider.GetUtcNow();
+            occurredAtUtc.ToUniversalTime();
 
         foreach (var release in transition.Releases)
         {
@@ -243,12 +261,31 @@ public sealed class OrderingInventoryOutcomeHandler
                 throw new OrderPlacementInventoryOutcomeException(
                     "AwaitingPayment process is missing its payment authorisation request ID.");
 
+            if (process.Lines.Any(
+                    line =>
+                        line.State != OrderPlacementLineState.Reserved ||
+                        !line.ReservationExpiresAtUtc.HasValue))
+            {
+                throw new OrderPlacementInventoryOutcomeException(
+                    "Payment authorisation requires valid reservation deadlines for every order line.");
+            }
+
+            var reservationValidUntilUtc =
+                process.Lines
+                    .Select(
+                        line =>
+                            line.ReservationExpiresAtUtc ??
+                            throw new OrderPlacementInventoryOutcomeException(
+                                "Reserved placement line is missing its reservation expiry."))
+                    .Min();
+
             var command =
                 new AuthorisePaymentV1(
                     requestId,
                     order.Id.Value,
                     order.Total.Amount,
-                    order.Total.Currency);
+                    order.Total.Currency,
+                    reservationValidUntilUtc);
 
             await _outboxWriter.AddAsync(
                 new IntegrationMessageEnvelope(

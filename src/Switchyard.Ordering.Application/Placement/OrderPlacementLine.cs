@@ -10,7 +10,8 @@ public sealed class OrderPlacementLine
         string skuCode,
         int quantity,
         OrderPlacementLineState state,
-        Guid? reservationId)
+        Guid? reservationId,
+        DateTimeOffset? reservationExpiresAtUtc)
     {
         OrderLineId = orderLineId;
         ReservationRequestId = reservationRequestId;
@@ -18,6 +19,8 @@ public sealed class OrderPlacementLine
         Quantity = quantity;
         State = state;
         ReservationId = reservationId;
+        ReservationExpiresAtUtc =
+            reservationExpiresAtUtc?.ToUniversalTime();
     }
 
     public OrderLineId OrderLineId { get; }
@@ -26,6 +29,7 @@ public sealed class OrderPlacementLine
     public int Quantity { get; }
     public OrderPlacementLineState State { get; }
     public Guid? ReservationId { get; }
+    public DateTimeOffset? ReservationExpiresAtUtc { get; }
 
     internal static OrderPlacementLine Start(OrderLine orderLine)
     {
@@ -37,7 +41,8 @@ public sealed class OrderPlacementLine
             orderLine.Product.SkuCode.Value,
             orderLine.Quantity,
             OrderPlacementLineState.AwaitingReservation,
-            reservationId: null);
+            reservationId: null,
+            reservationExpiresAtUtc: null);
     }
 
     public static OrderPlacementLine Rehydrate(
@@ -46,7 +51,8 @@ public sealed class OrderPlacementLine
         string skuCode,
         int quantity,
         OrderPlacementLineState state,
-        Guid? reservationId)
+        Guid? reservationId,
+        DateTimeOffset? reservationExpiresAtUtc)
     {
         ArgumentNullException.ThrowIfNull(orderLineId);
 
@@ -84,17 +90,25 @@ public sealed class OrderPlacementLine
                 nameof(reservationId));
         }
 
+        if (reservationExpiresAtUtc.HasValue &&
+            reservationExpiresAtUtc.Value == default)
+        {
+            throw new ArgumentException(
+                "Reservation expiry cannot be the default timestamp.",
+                nameof(reservationExpiresAtUtc));
+        }
+
         var requiresReservation =
             state is OrderPlacementLineState.Reserved
                 or OrderPlacementLineState.AwaitingRelease
                 or OrderPlacementLineState.Released
                 or OrderPlacementLineState.Expired;
 
-        if (requiresReservation != reservationId.HasValue)
+        if (requiresReservation != reservationId.HasValue ||
+            (!requiresReservation && reservationExpiresAtUtc.HasValue))
         {
             throw new ArgumentException(
-                "Reservation ID does not match the order-placement line state.",
-                nameof(reservationId));
+                "Reservation identity and expiry do not match the order-placement line state.");
         }
 
         return new OrderPlacementLine(
@@ -103,6 +117,7 @@ public sealed class OrderPlacementLine
             skuCode.Trim(),
             quantity,
             state,
-            reservationId);
+            reservationId,
+            reservationExpiresAtUtc);
     }
 }

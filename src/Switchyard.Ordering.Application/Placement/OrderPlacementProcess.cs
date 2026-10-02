@@ -62,6 +62,7 @@ public sealed class OrderPlacementProcess
         string skuCode,
         int quantity,
         Guid reservationId,
+        DateTimeOffset reservationExpiresAtUtc,
         Guid paymentAuthorisationRequestId,
         DateTimeOffset updatedAtUtc)
     {
@@ -71,44 +72,71 @@ public sealed class OrderPlacementProcess
                 "Inventory reserved outcome requires a reservation ID.");
         }
 
+        if (reservationExpiresAtUtc == default)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                "Inventory reserved outcome requires a reservation expiry.");
+        }
+
         if (paymentAuthorisationRequestId == Guid.Empty)
         {
             throw new OrderPlacementInventoryOutcomeException(
                 "Payment authorisation request ID cannot be empty.");
         }
 
+        var normalizedExpiresAtUtc =
+            reservationExpiresAtUtc.ToUniversalTime();
+
+        var normalizedUpdatedAtUtc =
+            updatedAtUtc.ToUniversalTime();
+
         var index = FindLineIndex(
             requestId,
             orderLineId,
             skuCode,
             quantity);
-        var line = _lines[index];
 
-        if (line.State is (
+        var line =
+            _lines[index];
+
+        if (line.ReservationId == reservationId &&
+            line.State is (
+                OrderPlacementLineState.Reserved or
+                OrderPlacementLineState.AwaitingRelease or
                 OrderPlacementLineState.Released or
-                OrderPlacementLineState.Expired) &&
-            line.ReservationId == reservationId)
+                OrderPlacementLineState.Expired))
         {
-            return OrderPlacementInventoryTransition.None;
-        }
+            var expiryWasMissing =
+                !line.ReservationExpiresAtUtc.HasValue;
 
-        if (line.State == OrderPlacementLineState.AwaitingRelease &&
-            line.ReservationId == reservationId)
-        {
-            return OrderPlacementInventoryTransition.None;
-        }
+            if (expiryWasMissing)
+            {
+                _lines[index] = RehydrateLine(
+                    line,
+                    line.State,
+                    reservationId,
+                    normalizedExpiresAtUtc);
 
-        if (line.State == OrderPlacementLineState.Reserved &&
-            line.ReservationId == reservationId)
-        {
-            if (State == OrderPlacementState.CompensatingInventory)
+                line =
+                    _lines[index];
+            }
+            else
+            {
+                EnsureReservationExpiryMatches(
+                    line,
+                    normalizedExpiresAtUtc);
+            }
+
+            if (line.State == OrderPlacementLineState.Reserved &&
+                State == OrderPlacementState.CompensatingInventory)
             {
                 _lines[index] = RehydrateLine(
                     line,
                     OrderPlacementLineState.AwaitingRelease,
                     reservationId);
 
-                Touch(updatedAtUtc);
+                Touch(
+                    normalizedUpdatedAtUtc);
 
                 return new OrderPlacementInventoryTransition(
                     Changed: true,
@@ -120,6 +148,27 @@ public sealed class OrderPlacementProcess
                             line.ReservationRequestId,
                             reservationId)
                     });
+            }
+
+            if (expiryWasMissing &&
+                line.State == OrderPlacementLineState.Reserved &&
+                State == OrderPlacementState.AwaitingInventory &&
+                normalizedExpiresAtUtc <= normalizedUpdatedAtUtc)
+            {
+                return BeginInventoryCompensation(
+                    normalizedUpdatedAtUtc);
+            }
+
+            if (expiryWasMissing)
+            {
+                Touch(
+                    normalizedUpdatedAtUtc);
+
+                return new OrderPlacementInventoryTransition(
+                    Changed: true,
+                    AuthorisePayment: false,
+                    FailPlacement: false,
+                    Array.Empty<OrderPlacementRelease>());
             }
 
             return OrderPlacementInventoryTransition.None;
@@ -136,7 +185,23 @@ public sealed class OrderPlacementProcess
             _lines[index] = RehydrateLine(
                 line,
                 OrderPlacementLineState.Reserved,
-                reservationId);
+                reservationId,
+                normalizedExpiresAtUtc);
+
+            var hasInvalidReservation =
+                _lines.Any(
+                    candidate =>
+                        candidate.State ==
+                            OrderPlacementLineState.Reserved &&
+                        (!candidate.ReservationExpiresAtUtc.HasValue ||
+                         candidate.ReservationExpiresAtUtc.Value <=
+                            normalizedUpdatedAtUtc));
+
+            if (hasInvalidReservation)
+            {
+                return BeginInventoryCompensation(
+                    normalizedUpdatedAtUtc);
+            }
 
             var authorisePayment =
                 _lines.All(
@@ -147,11 +212,13 @@ public sealed class OrderPlacementProcess
             if (authorisePayment)
             {
                 State = OrderPlacementState.AwaitingPayment;
+
                 PaymentAuthorisationRequestId =
                     paymentAuthorisationRequestId;
             }
 
-            Touch(updatedAtUtc);
+            Touch(
+                normalizedUpdatedAtUtc);
 
             return new OrderPlacementInventoryTransition(
                 Changed: true,
@@ -165,9 +232,11 @@ public sealed class OrderPlacementProcess
             _lines[index] = RehydrateLine(
                 line,
                 OrderPlacementLineState.AwaitingRelease,
-                reservationId);
+                reservationId,
+                normalizedExpiresAtUtc);
 
-            Touch(updatedAtUtc);
+            Touch(
+                normalizedUpdatedAtUtc);
 
             return new OrderPlacementInventoryTransition(
                 Changed: true,
@@ -458,6 +527,78 @@ public sealed class OrderPlacementProcess
             Array.Empty<OrderPlacementRelease>());
     }
 
+    private OrderPlacementInventoryTransition BeginInventoryCompensation(
+        DateTimeOffset updatedAtUtc)
+    {
+        State =
+            OrderPlacementState.CompensatingInventory;
+
+        var releases =
+            new List<OrderPlacementRelease>();
+
+        for (var lineIndex = 0; lineIndex < _lines.Length; lineIndex++)
+        {
+            var candidate =
+                _lines[lineIndex];
+
+            if (candidate.State != OrderPlacementLineState.Reserved)
+            {
+                continue;
+            }
+
+            var reservationId =
+                candidate.ReservationId ??
+                throw new OrderPlacementInventoryOutcomeException(
+                    "A reserved placement line is missing its reservation ID.");
+
+            _lines[lineIndex] = RehydrateLine(
+                candidate,
+                OrderPlacementLineState.AwaitingRelease,
+                reservationId);
+
+            releases.Add(
+                new OrderPlacementRelease(
+                    candidate.ReservationRequestId,
+                    reservationId));
+        }
+
+        var failPlacement =
+            _lines.All(
+                candidate =>
+                    candidate.State is
+                        OrderPlacementLineState.Rejected or
+                        OrderPlacementLineState.Released or
+                        OrderPlacementLineState.Expired);
+
+        if (failPlacement)
+        {
+            State =
+                OrderPlacementState.Failed;
+        }
+
+        Touch(
+            updatedAtUtc);
+
+        return new OrderPlacementInventoryTransition(
+            Changed: true,
+            AuthorisePayment: false,
+            FailPlacement: failPlacement,
+            releases.AsReadOnly());
+    }
+
+    private static void EnsureReservationExpiryMatches(
+        OrderPlacementLine line,
+        DateTimeOffset reservationExpiresAtUtc)
+    {
+        if (!line.ReservationExpiresAtUtc.HasValue ||
+            line.ReservationExpiresAtUtc.Value !=
+                reservationExpiresAtUtc)
+        {
+            throw new OrderPlacementInventoryOutcomeException(
+                "Inventory reserved outcome conflicts with the persisted reservation expiry.");
+        }
+    }
+
     private int FindLineIndex(
         Guid requestId)
     {
@@ -535,15 +676,23 @@ public sealed class OrderPlacementProcess
     private static OrderPlacementLine RehydrateLine(
         OrderPlacementLine line,
         OrderPlacementLineState state,
-        Guid? reservationId)
+        Guid? reservationId,
+        DateTimeOffset? reservationExpiresAtUtc = null)
     {
+        var effectiveExpiresAtUtc =
+            reservationId.HasValue
+                ? reservationExpiresAtUtc ??
+                  line.ReservationExpiresAtUtc
+                : null;
+
         return OrderPlacementLine.Rehydrate(
             line.OrderLineId,
             line.ReservationRequestId,
             line.SkuCode,
             line.Quantity,
             state,
-            reservationId);
+            reservationId,
+            effectiveExpiresAtUtc);
     }
 
     private void Touch(DateTimeOffset updatedAtUtc)

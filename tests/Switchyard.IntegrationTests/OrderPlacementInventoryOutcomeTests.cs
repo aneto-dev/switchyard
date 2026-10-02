@@ -150,7 +150,7 @@ public sealed class OrderPlacementInventoryOutcomeTests
             CreateReservedEnvelope(
                 finalReservation,
                 secondReservationId,
-                outcomeAtUtc.AddSeconds(2),
+                outcomeAtUtc.AddSeconds(1),
                 Guid.NewGuid()),
             cancellationToken);
 
@@ -159,6 +159,405 @@ public sealed class OrderPlacementInventoryOutcomeTests
                 connectionString,
                 AuthorisePaymentV1.MessageType,
                 cancellationToken));
+    }
+
+    [Fact]
+    public async Task ExpiredReservationOnArrivalStartsCompensationWithoutPayment()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var acceptedAtUtc =
+            new DateTimeOffset(
+                2026,
+                10,
+                2,
+                18,
+                0,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateTwoLineOrderAsync(
+                connectionString,
+                acceptedAtUtc,
+                "inventory-expired-on-arrival",
+                cancellationToken);
+
+        var reservedAtUtc =
+            acceptedAtUtc.AddSeconds(10);
+
+        var expiresAtUtc =
+            acceptedAtUtc.AddSeconds(20);
+
+        var handledAtUtc =
+            acceptedAtUtc.AddSeconds(30);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                handledAtUtc);
+
+        var reservationId =
+            Guid.NewGuid();
+
+        await consumer.ConsumeAsync(
+            CreateReservedEnvelope(
+                setup.ReserveCommands[0],
+                reservationId,
+                reservedAtUtc,
+                expiresAtUtc: expiresAtUtc),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.CompensatingInventory,
+            process.State);
+
+        var staleLine =
+            Assert.Single(
+                process.Lines,
+                line =>
+                    line.OrderLineId.Value ==
+                    setup.ReserveCommands[0].Command.OrderLineId);
+
+        Assert.Equal(
+            OrderPlacementLineState.AwaitingRelease,
+            staleLine.State);
+
+        Assert.Equal(
+            reservationId,
+            staleLine.ReservationId);
+
+        Assert.Equal(
+            expiresAtUtc,
+            staleLine.ReservationExpiresAtUtc);
+
+        Assert.Contains(
+            process.Lines,
+            line =>
+                line.OrderLineId.Value ==
+                    setup.ReserveCommands[1].Command.OrderLineId &&
+                line.State ==
+                    OrderPlacementLineState.AwaitingReservation);
+
+        Assert.Empty(
+            await ReadOutboxByTypeAsync(
+                connectionString,
+                AuthorisePaymentV1.MessageType,
+                cancellationToken));
+
+        var releaseMessage =
+            Assert.Single(
+                await ReadOutboxByTypeAsync(
+                    connectionString,
+                    ReleaseInventoryReservationV1.MessageType,
+                    cancellationToken));
+
+        var release =
+            JsonSerializer.Deserialize<ReleaseInventoryReservationV1>(
+                releaseMessage.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(
+            release);
+
+        Assert.Equal(
+            setup.ReserveCommands[0].Command.RequestId,
+            release.RequestId);
+
+        Assert.Equal(
+            reservationId,
+            release.ReservationId);
+    }
+
+    [Fact]
+    public async Task EarlierReservationExpiryBeforeFinalReservationStartsCompensationWithoutPayment()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var acceptedAtUtc =
+            new DateTimeOffset(
+                2026,
+                10,
+                2,
+                18,
+                10,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateTwoLineOrderAsync(
+                connectionString,
+                acceptedAtUtc,
+                "inventory-earlier-reservation-expired",
+                cancellationToken);
+
+        var firstReservedAtUtc =
+            acceptedAtUtc.AddSeconds(10);
+
+        var firstExpiresAtUtc =
+            acceptedAtUtc.AddSeconds(20);
+
+        var firstReservationId =
+            Guid.NewGuid();
+
+        var firstConsumer =
+            CreateConsumer(
+                connectionString,
+                firstReservedAtUtc);
+
+        await firstConsumer.ConsumeAsync(
+            CreateReservedEnvelope(
+                setup.ReserveCommands[0],
+                firstReservationId,
+                firstReservedAtUtc,
+                expiresAtUtc: firstExpiresAtUtc),
+            cancellationToken);
+
+        var afterFirst =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.AwaitingInventory,
+            afterFirst.State);
+
+        var secondReservedAtUtc =
+            acceptedAtUtc.AddSeconds(30);
+
+        var secondExpiresAtUtc =
+            acceptedAtUtc.AddMinutes(15);
+
+        var secondReservationId =
+            Guid.NewGuid();
+
+        var secondConsumer =
+            CreateConsumer(
+                connectionString,
+                secondReservedAtUtc);
+
+        await secondConsumer.ConsumeAsync(
+            CreateReservedEnvelope(
+                setup.ReserveCommands[1],
+                secondReservationId,
+                secondReservedAtUtc,
+                expiresAtUtc: secondExpiresAtUtc),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.CompensatingInventory,
+            process.State);
+
+        var firstLine =
+            Assert.Single(
+                process.Lines,
+                line =>
+                    line.OrderLineId.Value ==
+                    setup.ReserveCommands[0].Command.OrderLineId);
+
+        var secondLine =
+            Assert.Single(
+                process.Lines,
+                line =>
+                    line.OrderLineId.Value ==
+                    setup.ReserveCommands[1].Command.OrderLineId);
+
+        Assert.Equal(
+            OrderPlacementLineState.AwaitingRelease,
+            firstLine.State);
+
+        Assert.Equal(
+            OrderPlacementLineState.AwaitingRelease,
+            secondLine.State);
+
+        Assert.Equal(
+            firstExpiresAtUtc,
+            firstLine.ReservationExpiresAtUtc);
+
+        Assert.Equal(
+            secondExpiresAtUtc,
+            secondLine.ReservationExpiresAtUtc);
+
+        Assert.Empty(
+            await ReadOutboxByTypeAsync(
+                connectionString,
+                AuthorisePaymentV1.MessageType,
+                cancellationToken));
+
+        var releaseMessages =
+            await ReadOutboxByTypeAsync(
+                connectionString,
+                ReleaseInventoryReservationV1.MessageType,
+                cancellationToken);
+
+        Assert.Equal(
+            2,
+            releaseMessages.Count);
+
+        var releaseRequestIds =
+            releaseMessages
+                .Select(
+                    message =>
+                        JsonSerializer.Deserialize<ReleaseInventoryReservationV1>(
+                            message.PayloadJson,
+                            JsonSerializerOptions.Web) ??
+                        throw new InvalidOperationException(
+                            "Release inventory payload is empty."))
+                .Select(
+                    release =>
+                        release.RequestId)
+                .ToHashSet();
+
+        Assert.Contains(
+            setup.ReserveCommands[0].Command.RequestId,
+            releaseRequestIds);
+
+        Assert.Contains(
+            setup.ReserveCommands[1].Command.RequestId,
+            releaseRequestIds);
+    }
+
+    [Fact]
+    public async Task PaymentCommandCarriesEarliestReservationDeadline()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var acceptedAtUtc =
+            new DateTimeOffset(
+                2026,
+                10,
+                2,
+                18,
+                20,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateTwoLineOrderAsync(
+                connectionString,
+                acceptedAtUtc,
+                "inventory-payment-deadline",
+                cancellationToken);
+
+        var firstReservedAtUtc =
+            acceptedAtUtc.AddSeconds(10);
+
+        var secondReservedAtUtc =
+            acceptedAtUtc.AddSeconds(11);
+
+        var earliestExpiresAtUtc =
+            acceptedAtUtc.AddMinutes(5);
+
+        var laterExpiresAtUtc =
+            acceptedAtUtc.AddMinutes(10);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                acceptedAtUtc.AddSeconds(12));
+
+        await consumer.ConsumeAsync(
+            CreateReservedEnvelope(
+                setup.ReserveCommands[0],
+                Guid.NewGuid(),
+                firstReservedAtUtc,
+                expiresAtUtc: earliestExpiresAtUtc),
+            cancellationToken);
+
+        await consumer.ConsumeAsync(
+            CreateReservedEnvelope(
+                setup.ReserveCommands[1],
+                Guid.NewGuid(),
+                secondReservedAtUtc,
+                expiresAtUtc: laterExpiresAtUtc),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.AwaitingPayment,
+            process.State);
+
+        Assert.All(
+            process.Lines,
+            line =>
+                Assert.True(
+                    line.ReservationExpiresAtUtc.HasValue));
+
+        var paymentMessage =
+            Assert.Single(
+                await ReadOutboxByTypeAsync(
+                    connectionString,
+                    AuthorisePaymentV1.MessageType,
+                    cancellationToken));
+
+        var payment =
+            JsonSerializer.Deserialize<AuthorisePaymentV1>(
+                paymentMessage.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(
+            payment);
+
+        Assert.True(
+            payment.ReservationValidUntilUtc.HasValue);
+
+        Assert.Equal(
+            earliestExpiresAtUtc,
+            payment.ReservationValidUntilUtc.Value);
     }
 
     [Fact]
@@ -906,7 +1305,8 @@ public sealed class OrderPlacementInventoryOutcomeTests
         ReserveCommandRow reserve,
         Guid reservationId,
         DateTimeOffset occurredAtUtc,
-        Guid? messageId = null)
+        Guid? messageId = null,
+        DateTimeOffset? expiresAtUtc = null)
     {
         var eventMessageId =
             messageId ??
@@ -924,7 +1324,8 @@ public sealed class OrderPlacementInventoryOutcomeTests
                     reserve.Command.Quantity,
                     reservationId,
                     occurredAtUtc,
-                    occurredAtUtc.AddMinutes(15)),
+                    expiresAtUtc ??
+                        occurredAtUtc.AddMinutes(15)),
                 JsonSerializerOptions.Web),
             occurredAtUtc,
             reserve.Command.OrderId,

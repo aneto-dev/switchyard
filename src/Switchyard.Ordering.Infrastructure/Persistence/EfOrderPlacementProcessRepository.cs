@@ -45,7 +45,9 @@ public sealed class EfOrderPlacementProcessRepository :
                     SkuCode = line.SkuCode,
                     Quantity = line.Quantity,
                     State = line.State,
-                    ReservationId = line.ReservationId
+                    ReservationId = line.ReservationId,
+                    ReservationExpiresAtUtc =
+                        line.ReservationExpiresAtUtc
                 });
         }
 
@@ -153,6 +155,8 @@ public sealed class EfOrderPlacementProcessRepository :
 
             lineRecord.State = line.State;
             lineRecord.ReservationId = line.ReservationId;
+            lineRecord.ReservationExpiresAtUtc =
+                line.ReservationExpiresAtUtc;
         }
 
         return Task.CompletedTask;
@@ -173,7 +177,8 @@ public sealed class EfOrderPlacementProcessRepository :
                             line.SkuCode,
                             line.Quantity,
                             line.State,
-                            line.ReservationId))
+                            line.ReservationId,
+                            line.ReservationExpiresAtUtc))
                 .ToArray();
 
         return OrderPlacementProcess.Rehydrate(
