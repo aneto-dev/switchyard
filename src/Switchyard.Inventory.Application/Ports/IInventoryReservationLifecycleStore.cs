@@ -5,11 +5,16 @@ namespace Switchyard.Inventory.Application.Ports;
 
 public interface IInventoryReservationLifecycleStore
 {
-    Task<ReleaseInventoryOutcome> ReleaseAsync(
-        Guid reservationId, StockReservationReleaseReason reason,
-        DateTimeOffset releasedAtUtc, CancellationToken cancellationToken);
+    Task<InventoryReservationReleaseDecision> ReleaseAsync(
+        Guid requestId,
+        Guid orderId,
+        Guid reservationId,
+        StockReservationReleaseReason reason,
+        DateTimeOffset releasedAtUtc,
+        CancellationToken cancellationToken);
 
     Task<int> ExpireAsync(
-        DateTimeOffset expiredAtUtc, int batchSize,
+        DateTimeOffset expiredAtUtc,
+        int batchSize,
         CancellationToken cancellationToken);
 }

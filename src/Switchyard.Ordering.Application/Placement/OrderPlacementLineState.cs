@@ -6,5 +6,6 @@ public enum OrderPlacementLineState
     Reserved = 1,
     Rejected = 2,
     AwaitingRelease = 3,
-    Released = 4
+    Released = 4,
+    Expired = 5
 }

@@ -31,6 +31,9 @@ var orderingReceiveOptions = new ServiceBusReceiveOptions(
 var inventoryReceiveOptions = new ServiceBusReceiveOptions(
     builder.Configuration["SWITCHYARD_INVENTORY_SERVICEBUS_SUBSCRIPTION"] ?? "inventory");
 
+var inventoryReleaseReceiveOptions = new ServiceBusReceiveOptions(
+    builder.Configuration["SWITCHYARD_INVENTORY_RELEASE_SERVICEBUS_SUBSCRIPTION"] ?? "inventory-release");
+
 var orderingOutboxOptions = new OrderingOutboxWorkerOptions(
     GetPositiveInt(
         builder.Configuration["SWITCHYARD_OUTBOX_BATCH_SIZE"],
@@ -120,8 +123,17 @@ builder.Services.AddSingleton<
     IOrderingInboundMessageRoute,
     InventoryRejectedInboundMessageRoute>();
 builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    InventoryReleasedInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    InventoryExpiredInboundMessageRoute>();
+builder.Services.AddSingleton<
     IInventoryInboundMessageRoute,
     ReserveInventoryInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IInventoryInboundMessageRoute,
+    ReleaseInventoryInboundMessageRoute>();
 
 builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
     provider =>
@@ -139,6 +151,15 @@ builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
             provider,
             serviceBusOptions,
             inventoryReceiveOptions,
+            provider.GetRequiredService<InventoryInboundMessageConsumer>()));
+
+builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
+    provider =>
+        CreateEndpoint(
+            "inventory-release",
+            provider,
+            serviceBusOptions,
+            inventoryReleaseReceiveOptions,
             provider.GetRequiredService<InventoryInboundMessageConsumer>()));
 
 builder.Services.AddSingleton<

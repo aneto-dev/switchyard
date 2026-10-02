@@ -87,7 +87,8 @@ public sealed class OrderPlacementLine
         var requiresReservation =
             state is OrderPlacementLineState.Reserved
                 or OrderPlacementLineState.AwaitingRelease
-                or OrderPlacementLineState.Released;
+                or OrderPlacementLineState.Released
+                or OrderPlacementLineState.Expired;
 
         if (requiresReservation != reservationId.HasValue)
         {

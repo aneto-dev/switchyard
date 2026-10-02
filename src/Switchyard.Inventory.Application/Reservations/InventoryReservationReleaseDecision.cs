@@ -2,13 +2,11 @@ using Switchyard.Inventory.Domain.Reservations;
 
 namespace Switchyard.Inventory.Application.Reservations;
 
-public sealed record ReleaseInventoryResult(
+public sealed record InventoryReservationReleaseDecision(
     Guid RequestId,
     Guid OrderId,
     Guid ReservationId,
-    StockReservationReleaseReason Reason,
     ReleaseInventoryOutcome Outcome,
-    StockReservationReleaseReason? AppliedReleaseReason,
+    StockReservationReleaseReason? ReleaseReason,
     DateTimeOffset? ReleasedAtUtc,
-    DateTimeOffset? ExpiredAtUtc,
-    DateTimeOffset AttemptedAtUtc);
+    DateTimeOffset? ExpiredAtUtc);
