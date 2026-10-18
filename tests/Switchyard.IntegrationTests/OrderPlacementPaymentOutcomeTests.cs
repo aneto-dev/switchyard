@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Switchyard.IntegrationContracts.Inventory;
+using Switchyard.IntegrationContracts.Ordering;
 using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Orders;
@@ -54,10 +55,14 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 now.AddSeconds(20));
 
+        var authorisedMessageId =
+            Guid.NewGuid();
+
         var envelope =
             CreateAuthorisedEnvelope(
                 setup,
-                now.AddSeconds(15));
+                now.AddSeconds(15),
+                authorisedMessageId);
 
         await consumer.ConsumeAsync(
             envelope,
@@ -90,6 +95,46 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 setup.OrderId,
                 cancellationToken));
+
+        var confirmedEvent =
+            Assert.Single(
+                await ReadOrderConfirmedEventsAsync(
+                    connectionString,
+                    setup.OrderId,
+                    cancellationToken));
+
+        Assert.Equal(
+            setup.OrderId,
+            confirmedEvent.CorrelationId);
+        Assert.Equal(
+            authorisedMessageId,
+            confirmedEvent.CausationId);
+        Assert.Equal(
+            now.AddSeconds(20),
+            confirmedEvent.OccurredAtUtc);
+
+        var payload =
+            JsonSerializer.Deserialize<OrderConfirmedV1>(
+                confirmedEvent.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(
+            payload);
+        Assert.Equal(
+            order.Id.Value,
+            payload.OrderId);
+        Assert.Equal(
+            order.OrderNumber.Value,
+            payload.OrderNumber);
+        Assert.Equal(
+            order.Total.Amount,
+            payload.TotalAmount);
+        Assert.Equal(
+            order.Total.Currency,
+            payload.Currency);
+        Assert.Equal(
+            now.AddSeconds(20),
+            payload.ConfirmedAtUtc);
     }
 
     [Fact]
@@ -1090,6 +1135,66 @@ public sealed class OrderPlacementPaymentOutcomeTests
         }
 
         return rows;
+    }
+
+    private static async Task<IReadOnlyList<IntegrationMessageEnvelope>> ReadOrderConfirmedEventsAsync(
+        string connectionString,
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var events =
+            new List<IntegrationMessageEnvelope>();
+
+        await using var connection =
+            new NpgsqlConnection(
+                connectionString);
+
+        await connection.OpenAsync(
+            cancellationToken);
+
+        await using var command =
+            new NpgsqlCommand(
+                """
+                SELECT
+                    message_id,
+                    payload::text,
+                    occurred_at_utc,
+                    correlation_id,
+                    causation_id
+                FROM ordering.outbox_messages
+                WHERE message_type = @message_type
+                  AND correlation_id = @order_id
+                ORDER BY occurred_at_utc, message_id;
+                """,
+                connection);
+
+        command.Parameters.AddWithValue(
+            "message_type",
+            OrderConfirmedV1.MessageType);
+
+        command.Parameters.AddWithValue(
+            "order_id",
+            orderId);
+
+        await using var reader =
+            await command.ExecuteReaderAsync(
+                cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            events.Add(
+                new IntegrationMessageEnvelope(
+                    reader.GetGuid(0),
+                    OrderConfirmedV1.MessageType,
+                    reader.GetString(1),
+                    reader.GetFieldValue<DateTimeOffset>(2),
+                    reader.GetGuid(3),
+                    reader.IsDBNull(4)
+                        ? null
+                        : reader.GetGuid(4)));
+        }
+
+        return events;
     }
 
     private static async Task<IReadOnlyList<ReleaseInventoryReservationV1>> ReadReleaseCommandsAsync(

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Switchyard.IntegrationContracts.Inventory;
+using Switchyard.IntegrationContracts.Ordering;
 using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Ports;
@@ -62,10 +63,13 @@ public sealed class OrderingPaymentOutcomeHandler
             outcome.Amount,
             outcome.Currency);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordPaymentAuthorised(
                 outcome.RequestId,
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         if (!transition.Changed)
         {
@@ -76,12 +80,15 @@ public sealed class OrderingPaymentOutcomeHandler
             return;
         }
 
-        await _processRepository.UpdateAsync(
-            process,
-            cancellationToken);
-
         if (transition.ConfirmOrder)
         {
+            if (process.State !=
+                OrderPlacementState.Confirming)
+            {
+                throw new OrderPlacementPaymentOutcomeException(
+                    $"Payment-authorised confirmation requires process state '{OrderPlacementState.Confirming}', not '{process.State}'.");
+            }
+
             if (order.Status != OrderStatus.Pending)
             {
                 throw new OrderPlacementPaymentOutcomeException(
@@ -90,12 +97,29 @@ public sealed class OrderingPaymentOutcomeHandler
 
             order.Confirm();
 
+            process.CompleteConfirmation(
+                handledAtUtc);
+
+            await _processRepository.UpdateAsync(
+                process,
+                cancellationToken);
+
             await _orderRepository.UpdateAsync(
                 order,
                 cancellationToken);
 
+            await StageOrderConfirmedAsync(
+                order,
+                causationId,
+                handledAtUtc,
+                cancellationToken);
+
             return;
         }
+
+        await _processRepository.UpdateAsync(
+            process,
+            cancellationToken);
 
         if (process.State ==
             OrderPlacementState.NeedsAttention)
@@ -279,6 +303,33 @@ public sealed class OrderingPaymentOutcomeHandler
 
         await _processRepository.UpdateAsync(
             process,
+            cancellationToken);
+    }
+
+    private async Task StageOrderConfirmedAsync(
+        Order order,
+        Guid causationId,
+        DateTimeOffset confirmedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var integrationEvent =
+            new OrderConfirmedV1(
+                order.Id.Value,
+                order.OrderNumber.Value,
+                order.Total.Amount,
+                order.Total.Currency,
+                confirmedAtUtc);
+
+        await _outboxWriter.AddAsync(
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                OrderConfirmedV1.MessageType,
+                JsonSerializer.Serialize(
+                    integrationEvent,
+                    JsonSerializerOptions.Web),
+                confirmedAtUtc,
+                order.Id.Value,
+                causationId),
             cancellationToken);
     }
 

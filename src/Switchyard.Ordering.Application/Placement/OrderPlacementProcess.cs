@@ -477,7 +477,7 @@ public sealed class OrderPlacementProcess
         }
 
         State =
-            OrderPlacementState.Confirmed;
+            OrderPlacementState.Confirming;
 
         Touch(
             normalizedUpdatedAtUtc);
@@ -487,6 +487,24 @@ public sealed class OrderPlacementProcess
             ConfirmOrder: true,
             FailOrder: false,
             Array.Empty<OrderPlacementRelease>());
+    }
+
+    public void CompleteConfirmation(
+        DateTimeOffset updatedAtUtc)
+    {
+        if (State != OrderPlacementState.Confirming)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Order confirmation cannot complete from process state '{State}'.");
+        }
+
+        EnsureAllLinesRemainReserved();
+
+        State =
+            OrderPlacementState.Confirmed;
+
+        Touch(
+            updatedAtUtc);
     }
 
     public OrderPlacementPaymentTransition RecordPaymentFailed(
