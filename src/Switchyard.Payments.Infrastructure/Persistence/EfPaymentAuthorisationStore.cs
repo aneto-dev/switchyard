@@ -175,6 +175,37 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
         return ToDecision(intent, attempt, replayed: false);
     }
 
+    public async Task<PaymentAuthorisationDecision?> FindByRequestIdAsync(
+        Guid requestId,
+        CancellationToken cancellationToken)
+    {
+        if (requestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment authorisation request ID cannot be empty.",
+                nameof(requestId));
+        }
+
+        var existing = await (
+            from attempt in _dbContext.AuthorisationAttempts.AsNoTracking()
+            join intent in _dbContext.PaymentIntents.AsNoTracking()
+                on attempt.PaymentId equals intent.PaymentId
+            where attempt.RequestId == requestId
+            select new
+            {
+                Attempt = attempt,
+                Intent = intent
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return existing is null
+            ? null
+            : ToDecision(
+                existing.Intent,
+                existing.Attempt,
+                replayed: true);
+    }
+
     private async Task<PaymentAuthorisationDecision?> GetExistingDecisionAsync(
         PaymentAuthorisationRequest request, CancellationToken cancellationToken)
     {
