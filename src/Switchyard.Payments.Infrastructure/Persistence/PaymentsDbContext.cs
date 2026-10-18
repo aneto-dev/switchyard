@@ -81,6 +81,10 @@ public sealed class PaymentsDbContext : DbContext
                     "ck_payments_authorisation_provider_reference",
                     "provider_reference IS NULL OR btrim(provider_reference) <> ''");
                 table.HasCheckConstraint(
+                    "ck_payments_authorisation_provider_invocation_time",
+                    "provider_invocation_claimed_at_utc IS NULL OR " +
+                    "provider_invocation_claimed_at_utc >= requested_at_utc");
+                table.HasCheckConstraint(
                     "ck_payments_authorisation_shape",
                     "(status = 0 AND provider_reference IS NULL AND resolved_at_utc IS NULL) OR " +
                     "(status IN (1, 2) AND provider_reference IS NOT NULL AND resolved_at_utc IS NOT NULL) OR " +
@@ -114,6 +118,8 @@ public sealed class PaymentsDbContext : DbContext
                .HasMaxLength(100);
         attempt.Property(record => record.Status).HasColumnName("status").HasConversion<int>();
         attempt.Property(record => record.RequestedAtUtc).HasColumnName("requested_at_utc").IsRequired();
+        attempt.Property(record => record.ProviderInvocationClaimedAtUtc)
+               .HasColumnName("provider_invocation_claimed_at_utc");
         attempt.Property(record => record.ResolvedAtUtc).HasColumnName("resolved_at_utc");
         attempt.Property(record => record.ReconciliationAttemptCount)
                .HasColumnName("reconciliation_attempt_count")

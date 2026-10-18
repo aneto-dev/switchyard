@@ -48,17 +48,49 @@ public sealed class AuthorisePaymentHandler
             return ToResult(started, started.Replayed);
         }
 
+        // Persist the external side-effect boundary before provider I/O. Once this
+        // claim exists, another execution must never blindly invoke Authorise again.
+        var invocationClaim = await _store.ClaimProviderInvocationAsync(
+            command.RequestId,
+            _timeProvider.GetUtcNow(),
+            cancellationToken);
+
+        if (invocationClaim.Decision.Attempt.Status !=
+            PaymentAuthorisationStatus.AuthorisationPending)
+        {
+            return ToResult(
+                invocationClaim.Decision,
+                replayed: true);
+        }
+
+        if (!invocationClaim.Acquired)
+        {
+            // A prior execution crossed (or may have crossed) the provider boundary.
+            // Its outcome is therefore unknown until provider truth is reconciled.
+            var recovered = await _store.CompleteAsync(
+                new PaymentAuthorisationCompletion(
+                    command.RequestId,
+                    PaymentAuthorisationStatus.Indeterminate,
+                    ProviderReference: null,
+                    _timeProvider.GetUtcNow()),
+                cancellationToken);
+
+            return ToResult(
+                recovered,
+                replayed: true);
+        }
+
         PaymentAuthorisationCompletion completion;
 
         try
         {
             var providerResult = await _provider.AuthoriseAsync(
                 new PaymentProviderAuthorisationRequest(
-                    started.Attempt.ProviderIdempotencyKey,
-                    started.Intent.Id.Value,
-                    started.Intent.OrderId,
-                    started.Intent.Amount.Amount,
-                    started.Intent.Amount.Currency),
+                    invocationClaim.Decision.Attempt.ProviderIdempotencyKey,
+                    invocationClaim.Decision.Intent.Id.Value,
+                    invocationClaim.Decision.Intent.OrderId,
+                    invocationClaim.Decision.Intent.Amount.Amount,
+                    invocationClaim.Decision.Intent.Amount.Currency),
                 cancellationToken);
 
             var status = providerResult.Outcome switch
@@ -85,7 +117,9 @@ public sealed class AuthorisePaymentHandler
 
         var completed = await _store.CompleteAsync(completion, cancellationToken);
 
-        return ToResult(completed, started.Replayed || completed.Replayed);
+        return ToResult(
+            completed,
+            started.Replayed || completed.Replayed);
     }
 
     private static AuthorisePaymentResult ToResult(

@@ -43,6 +43,10 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("provider_idempotency_key");
 
+                    b.Property<DateTimeOffset?>("ProviderInvocationClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("provider_invocation_claimed_at_utc");
+
                     b.Property<string>("ProviderReference")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -84,6 +88,8 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                     b.ToTable("authorisation_attempts", "payments", t =>
                         {
                             t.HasCheckConstraint("ck_payments_authorisation_pending_not_reconciled", "status <> 0 OR reconciliation_attempt_count = 0");
+
+                            t.HasCheckConstraint("ck_payments_authorisation_provider_invocation_time", "provider_invocation_claimed_at_utc IS NULL OR provider_invocation_claimed_at_utc >= requested_at_utc");
 
                             t.HasCheckConstraint("ck_payments_authorisation_provider_key", "btrim(provider_idempotency_key) <> ''");
 
