@@ -368,6 +368,134 @@ public sealed class OrderPlacementProcess
             updatedAtUtc);
     }
 
+    public OrderPlacementPaymentTransition RecordPaymentAuthorised(
+        Guid requestId,
+        DateTimeOffset updatedAtUtc)
+    {
+        EnsurePaymentAuthorisationRequestMatches(
+            requestId);
+
+        if (State == OrderPlacementState.Confirmed)
+        {
+            return OrderPlacementPaymentTransition.None;
+        }
+
+        if (State is not (
+            OrderPlacementState.AwaitingPayment or
+            OrderPlacementState.PaymentIndeterminate))
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Payment authorised outcome cannot advance process state '{State}'.");
+        }
+
+        EnsureAllLinesRemainReserved();
+
+        State =
+            OrderPlacementState.Confirmed;
+
+        Touch(
+            updatedAtUtc);
+
+        return new OrderPlacementPaymentTransition(
+            Changed: true,
+            ConfirmOrder: true,
+            Array.Empty<OrderPlacementRelease>());
+    }
+
+    public OrderPlacementPaymentTransition RecordPaymentFailed(
+        Guid requestId,
+        DateTimeOffset updatedAtUtc)
+    {
+        EnsurePaymentAuthorisationRequestMatches(
+            requestId);
+
+        if (State is
+            OrderPlacementState.CompensatingInventory or
+            OrderPlacementState.Failed)
+        {
+            return OrderPlacementPaymentTransition.None;
+        }
+
+        if (State is not (
+            OrderPlacementState.AwaitingPayment or
+            OrderPlacementState.PaymentIndeterminate))
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Payment failed outcome cannot advance process state '{State}'.");
+        }
+
+        EnsureAllLinesRemainReserved();
+
+        State =
+            OrderPlacementState.CompensatingInventory;
+
+        var releases =
+            new List<OrderPlacementRelease>(
+                _lines.Length);
+
+        for (var lineIndex = 0; lineIndex < _lines.Length; lineIndex++)
+        {
+            var line =
+                _lines[lineIndex];
+
+            var reservationId =
+                line.ReservationId ??
+                throw new OrderPlacementPaymentOutcomeException(
+                    "Payment compensation requires a reservation ID for every order line.");
+
+            _lines[lineIndex] =
+                RehydrateLine(
+                    line,
+                    OrderPlacementLineState.AwaitingRelease,
+                    reservationId);
+
+            releases.Add(
+                new OrderPlacementRelease(
+                    line.ReservationRequestId,
+                    reservationId));
+        }
+
+        Touch(
+            updatedAtUtc);
+
+        return new OrderPlacementPaymentTransition(
+            Changed: true,
+            ConfirmOrder: false,
+            releases.AsReadOnly());
+    }
+
+    public OrderPlacementPaymentTransition RecordPaymentIndeterminate(
+        Guid requestId,
+        DateTimeOffset updatedAtUtc)
+    {
+        EnsurePaymentAuthorisationRequestMatches(
+            requestId);
+
+        if (State == OrderPlacementState.PaymentIndeterminate)
+        {
+            return OrderPlacementPaymentTransition.None;
+        }
+
+        if (State != OrderPlacementState.AwaitingPayment)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Payment indeterminate outcome cannot advance process state '{State}'.");
+        }
+
+        EnsureAllLinesRemainReserved();
+
+        State =
+            OrderPlacementState.PaymentIndeterminate;
+
+        Touch(
+            updatedAtUtc);
+
+        return new OrderPlacementPaymentTransition(
+            Changed: true,
+            ConfirmOrder: false,
+            Array.Empty<OrderPlacementRelease>());
+    }
+
     public static OrderPlacementProcess Rehydrate(
         OrderId orderId,
         OrderPlacementState state,
@@ -584,6 +712,36 @@ public sealed class OrderPlacementProcess
             AuthorisePayment: false,
             FailPlacement: failPlacement,
             releases.AsReadOnly());
+    }
+
+    private void EnsurePaymentAuthorisationRequestMatches(
+        Guid requestId)
+    {
+        if (requestId == Guid.Empty)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                "Payment outcome request ID cannot be empty.");
+        }
+
+        if (!PaymentAuthorisationRequestId.HasValue ||
+            PaymentAuthorisationRequestId.Value != requestId)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Payment outcome request '{requestId}' does not match placement '{OrderId.Value}'.");
+        }
+    }
+
+    private void EnsureAllLinesRemainReserved()
+    {
+        if (_lines.Any(
+                line =>
+                    line.State != OrderPlacementLineState.Reserved ||
+                    !line.ReservationId.HasValue ||
+                    !line.ReservationExpiresAtUtc.HasValue))
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                "Payment outcome requires every placement line to retain its reservation.");
+        }
     }
 
     private static void EnsureReservationExpiryMatches(

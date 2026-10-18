@@ -161,6 +161,15 @@ builder.Services.AddSingleton<
     IOrderingInboundMessageRoute,
     InventoryExpiredInboundMessageRoute>();
 builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    PaymentAuthorisedInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    PaymentAuthorisationFailedInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    PaymentAuthorisationIndeterminateInboundMessageRoute>();
+builder.Services.AddSingleton<
     IInventoryInboundMessageRoute,
     ReserveInventoryInboundMessageRoute>();
 builder.Services.AddSingleton<
