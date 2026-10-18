@@ -75,6 +75,7 @@ public sealed class ReconcilePaymentAuthorisationHandler
                 command.RequestId,
                 status,
                 providerReference,
+                current.ReconciliationAttemptCount,
                 _timeProvider.GetUtcNow()),
             cancellationToken);
 

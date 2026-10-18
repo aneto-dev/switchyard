@@ -170,6 +170,9 @@ builder.Services.AddSingleton<
     IOrderingInboundMessageRoute,
     PaymentAuthorisationIndeterminateInboundMessageRoute>();
 builder.Services.AddSingleton<
+    IOrderingInboundMessageRoute,
+    PaymentAuthorisationNeedsAttentionInboundMessageRoute>();
+builder.Services.AddSingleton<
     IInventoryInboundMessageRoute,
     ReserveInventoryInboundMessageRoute>();
 builder.Services.AddSingleton<

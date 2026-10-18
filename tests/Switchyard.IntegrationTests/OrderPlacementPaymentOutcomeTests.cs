@@ -410,6 +410,352 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 cancellationToken));
     }
 
+
+    [Fact]
+    public async Task AuthorisedPaymentAfterReservationDeadlineMovesToNeedsAttentionWithoutConfirming()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var now =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                11,
+                0,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateAwaitingPaymentOrderAsync(
+                connectionString,
+                now,
+                "payment-authorised-after-expiry",
+                cancellationToken);
+
+        var handledAtUtc =
+            now.AddMinutes(16);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                handledAtUtc);
+
+        await consumer.ConsumeAsync(
+            CreateAuthorisedEnvelope(
+                setup,
+                handledAtUtc),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        var order =
+            await ReadOrderAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.NeedsAttention,
+            process.State);
+        Assert.Equal(
+            OrderStatus.Pending,
+            order.Status);
+        Assert.Empty(
+            await ReadReleaseCommandsAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken));
+    }
+
+    [Fact]
+    public async Task ReconciliationExhaustionMovesIndeterminatePlacementToNeedsAttention()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var now =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                11,
+                10,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateAwaitingPaymentOrderAsync(
+                connectionString,
+                now,
+                "payment-reconciliation-exhausted",
+                cancellationToken);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                now.AddSeconds(30));
+
+        await consumer.ConsumeAsync(
+            CreateIndeterminateEnvelope(
+                setup,
+                now.AddSeconds(15)),
+            cancellationToken);
+
+        await consumer.ConsumeAsync(
+            CreateNeedsAttentionEnvelope(
+                setup,
+                now.AddSeconds(25),
+                reconciliationAttemptCount: 3),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        var order =
+            await ReadOrderAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.NeedsAttention,
+            process.State);
+        Assert.Equal(
+            OrderStatus.Pending,
+            order.Status);
+        Assert.Empty(
+            await ReadReleaseCommandsAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken));
+    }
+
+    [Fact]
+    public async Task InventoryExpiryDuringIndeterminatePaymentNeedsAttentionThenDefiniteFailureReleasesRemainingStock()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var now =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                11,
+                20,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateAwaitingPaymentOrderAsync(
+                connectionString,
+                now,
+                "payment-expiry-during-reconciliation",
+                cancellationToken);
+
+        var initialConsumer =
+            CreateConsumer(
+                connectionString,
+                now.AddSeconds(30));
+
+        await initialConsumer.ConsumeAsync(
+            CreateIndeterminateEnvelope(
+                setup,
+                now.AddSeconds(15)),
+            cancellationToken);
+
+        var expiredReservation =
+            setup.Reservations[0];
+
+        var expiredAtUtc =
+            now.AddMinutes(16);
+
+        var expiryConsumer =
+            CreateConsumer(
+                connectionString,
+                expiredAtUtc);
+
+        await expiryConsumer.ConsumeAsync(
+            CreateExpiredEnvelope(
+                setup,
+                expiredReservation,
+                expiredAtUtc),
+            cancellationToken);
+
+        var needsAttention =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.NeedsAttention,
+            needsAttention.State);
+
+        Assert.Contains(
+            needsAttention.Lines,
+            line =>
+                line.ReservationRequestId ==
+                    expiredReservation.Command.RequestId &&
+                line.State ==
+                    OrderPlacementLineState.Expired);
+
+        var failureConsumer =
+            CreateConsumer(
+                connectionString,
+                expiredAtUtc.AddSeconds(10));
+
+        await failureConsumer.ConsumeAsync(
+            CreateFailedEnvelope(
+                setup,
+                PaymentAuthorisationFailedV1.DeclinedReason,
+                expiredAtUtc.AddSeconds(5)),
+            cancellationToken);
+
+        var compensating =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.CompensatingInventory,
+            compensating.State);
+
+        Assert.Contains(
+            compensating.Lines,
+            line =>
+                line.ReservationRequestId ==
+                    expiredReservation.Command.RequestId &&
+                line.State ==
+                    OrderPlacementLineState.Expired);
+
+        Assert.Single(
+            compensating.Lines,
+            line =>
+                line.State ==
+                    OrderPlacementLineState.AwaitingRelease);
+
+        Assert.Single(
+            await ReadReleaseCommandsAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken));
+    }
+
+    [Fact]
+    public async Task StaleIndeterminateOutcomeAfterAuthorisedTruthDoesNotDowngradeConfirmedOrder()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var now =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                11,
+                30,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateAwaitingPaymentOrderAsync(
+                connectionString,
+                now,
+                "payment-out-of-order-indeterminate",
+                cancellationToken);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                now.AddSeconds(30));
+
+        await consumer.ConsumeAsync(
+            CreateAuthorisedEnvelope(
+                setup,
+                now.AddSeconds(25)),
+            cancellationToken);
+
+        await consumer.ConsumeAsync(
+            CreateIndeterminateEnvelope(
+                setup,
+                now.AddSeconds(15)),
+            cancellationToken);
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        var order =
+            await ReadOrderAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.Confirmed,
+            process.State);
+        Assert.Equal(
+            OrderStatus.Confirmed,
+            order.Status);
+    }
+
     private static OrderingInboundMessageConsumer CreateConsumer(
         string connectionString,
         DateTimeOffset now)
@@ -426,11 +772,15 @@ public sealed class OrderPlacementPaymentOutcomeTests
             {
                 new InventoryReservedInboundMessageRoute(
                     timeProvider),
+                new InventoryExpiredInboundMessageRoute(
+                    timeProvider),
                 new PaymentAuthorisedInboundMessageRoute(
                     timeProvider),
                 new PaymentAuthorisationFailedInboundMessageRoute(
                     timeProvider),
                 new PaymentAuthorisationIndeterminateInboundMessageRoute(
+                    timeProvider),
+                new PaymentAuthorisationNeedsAttentionInboundMessageRoute(
                     timeProvider)
             });
     }
@@ -639,6 +989,52 @@ public sealed class OrderPlacementPaymentOutcomeTests
             occurredAtUtc,
             setup.OrderId,
             setup.PaymentRequestId);
+    }
+
+
+    private static IntegrationMessageEnvelope CreateNeedsAttentionEnvelope(
+        PaymentSetup setup,
+        DateTimeOffset occurredAtUtc,
+        int reconciliationAttemptCount)
+    {
+        return new IntegrationMessageEnvelope(
+            Guid.NewGuid(),
+            PaymentAuthorisationNeedsAttentionV1.MessageType,
+            JsonSerializer.Serialize(
+                new PaymentAuthorisationNeedsAttentionV1(
+                    setup.PaymentRequestId,
+                    setup.OrderId,
+                    Guid.NewGuid(),
+                    setup.Amount,
+                    setup.Currency,
+                    ProviderReference: null,
+                    PaymentAuthorisationNeedsAttentionV1.ReconciliationExhaustedReason,
+                    reconciliationAttemptCount,
+                    occurredAtUtc),
+                JsonSerializerOptions.Web),
+            occurredAtUtc,
+            setup.OrderId,
+            setup.PaymentRequestId);
+    }
+
+    private static IntegrationMessageEnvelope CreateExpiredEnvelope(
+        PaymentSetup setup,
+        ReservationSetup reservation,
+        DateTimeOffset occurredAtUtc)
+    {
+        return new IntegrationMessageEnvelope(
+            Guid.NewGuid(),
+            InventoryExpiredV1.MessageType,
+            JsonSerializer.Serialize(
+                new InventoryExpiredV1(
+                    reservation.Command.RequestId,
+                    setup.OrderId,
+                    reservation.ReservationId,
+                    occurredAtUtc),
+                JsonSerializerOptions.Web),
+            occurredAtUtc,
+            setup.OrderId,
+            reservation.CommandMessageId);
     }
 
     private static async Task<IReadOnlyList<ReserveCommandRow>> ReadReserveCommandsAsync(

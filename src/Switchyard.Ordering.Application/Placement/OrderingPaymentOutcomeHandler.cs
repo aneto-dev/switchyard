@@ -42,8 +42,10 @@ public sealed class OrderingPaymentOutcomeHandler
         Guid causationId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(outcome);
-        EnsureCausationId(causationId);
+        ArgumentNullException.ThrowIfNull(
+            outcome);
+        EnsureCausationId(
+            causationId);
 
         var process =
             await LoadProcessForUpdateAsync(
@@ -67,11 +69,9 @@ public sealed class OrderingPaymentOutcomeHandler
 
         if (!transition.Changed)
         {
-            if (order.Status != OrderStatus.Confirmed)
-            {
-                throw new OrderPlacementPaymentOutcomeException(
-                    $"Confirmed placement '{process.OrderId.Value}' has order status '{order.Status}'.");
-            }
+            EnsureOrderMatchesProcess(
+                process,
+                order);
 
             return;
         }
@@ -80,23 +80,37 @@ public sealed class OrderingPaymentOutcomeHandler
             process,
             cancellationToken);
 
-        if (!transition.ConfirmOrder)
+        if (transition.ConfirmOrder)
         {
-            throw new OrderPlacementPaymentOutcomeException(
-                "Payment-authorised transition did not request order confirmation.");
+            if (order.Status != OrderStatus.Pending)
+            {
+                throw new OrderPlacementPaymentOutcomeException(
+                    $"Order '{order.Id.Value}' cannot confirm from status '{order.Status}'.");
+            }
+
+            order.Confirm();
+
+            await _orderRepository.UpdateAsync(
+                order,
+                cancellationToken);
+
+            return;
         }
 
-        if (order.Status != OrderStatus.Pending)
+        if (process.State ==
+            OrderPlacementState.NeedsAttention)
         {
-            throw new OrderPlacementPaymentOutcomeException(
-                $"Order '{order.Id.Value}' cannot confirm from status '{order.Status}'.");
+            if (order.Status != OrderStatus.Pending)
+            {
+                throw new OrderPlacementPaymentOutcomeException(
+                    $"NeedsAttention placement '{process.OrderId.Value}' has order status '{order.Status}'.");
+            }
+
+            return;
         }
 
-        order.Confirm();
-
-        await _orderRepository.UpdateAsync(
-            order,
-            cancellationToken);
+        throw new OrderPlacementPaymentOutcomeException(
+            "Payment-authorised transition produced an unsupported Ordering state.");
     }
 
     public async Task HandleFailedAsync(
@@ -104,8 +118,10 @@ public sealed class OrderingPaymentOutcomeHandler
         Guid causationId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(outcome);
-        EnsureCausationId(causationId);
+        ArgumentNullException.ThrowIfNull(
+            outcome);
+        EnsureCausationId(
+            causationId);
 
         var process =
             await LoadProcessForUpdateAsync(
@@ -122,13 +138,20 @@ public sealed class OrderingPaymentOutcomeHandler
             outcome.Amount,
             outcome.Currency);
 
+        var handledAtUtc =
+            _timeProvider.GetUtcNow();
+
         var transition =
             process.RecordPaymentFailed(
                 outcome.RequestId,
-                _timeProvider.GetUtcNow());
+                handledAtUtc);
 
         if (!transition.Changed)
         {
+            EnsureOrderMatchesProcess(
+                process,
+                order);
+
             return;
         }
 
@@ -142,28 +165,19 @@ public sealed class OrderingPaymentOutcomeHandler
             process,
             cancellationToken);
 
-        var now =
-            _timeProvider.GetUtcNow();
+        await StageReleasesAsync(
+            process,
+            transition.Releases,
+            causationId,
+            handledAtUtc,
+            cancellationToken);
 
-        foreach (var release in transition.Releases)
+        if (transition.FailOrder)
         {
-            var command =
-                new ReleaseInventoryReservationV1(
-                    release.ReservationRequestId,
-                    process.OrderId.Value,
-                    release.ReservationId,
-                    ReleaseInventoryReservationV1.CompensationReason);
+            order.Fail();
 
-            await _outboxWriter.AddAsync(
-                new IntegrationMessageEnvelope(
-                    Guid.NewGuid(),
-                    ReleaseInventoryReservationV1.MessageType,
-                    JsonSerializer.Serialize(
-                        command,
-                        JsonSerializerOptions.Web),
-                    now,
-                    process.OrderId.Value,
-                    causationId),
+            await _orderRepository.UpdateAsync(
+                order,
                 cancellationToken);
         }
     }
@@ -173,8 +187,10 @@ public sealed class OrderingPaymentOutcomeHandler
         Guid causationId,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(outcome);
-        EnsureCausationId(causationId);
+        ArgumentNullException.ThrowIfNull(
+            outcome);
+        EnsureCausationId(
+            causationId);
 
         var process =
             await LoadProcessForUpdateAsync(
@@ -198,11 +214,9 @@ public sealed class OrderingPaymentOutcomeHandler
 
         if (!transition.Changed)
         {
-            if (order.Status != OrderStatus.Pending)
-            {
-                throw new OrderPlacementPaymentOutcomeException(
-                    $"Indeterminate placement '{process.OrderId.Value}' has order status '{order.Status}'.");
-            }
+            EnsureOrderMatchesProcess(
+                process,
+                order);
 
             return;
         }
@@ -216,6 +230,86 @@ public sealed class OrderingPaymentOutcomeHandler
         await _processRepository.UpdateAsync(
             process,
             cancellationToken);
+    }
+
+    public async Task HandleNeedsAttentionAsync(
+        PaymentAuthorisationNeedsAttentionV1 outcome,
+        Guid causationId,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(
+            outcome);
+        EnsureCausationId(
+            causationId);
+
+        var process =
+            await LoadProcessForUpdateAsync(
+                outcome.OrderId,
+                cancellationToken);
+
+        var order =
+            await LoadOrderAsync(
+                process.OrderId,
+                cancellationToken);
+
+        EnsureAmountMatches(
+            order,
+            outcome.Amount,
+            outcome.Currency);
+
+        var transition =
+            process.RecordPaymentNeedsAttention(
+                outcome.RequestId,
+                _timeProvider.GetUtcNow());
+
+        if (!transition.Changed)
+        {
+            EnsureOrderMatchesProcess(
+                process,
+                order);
+
+            return;
+        }
+
+        if (order.Status != OrderStatus.Pending)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Order '{order.Id.Value}' cannot enter NeedsAttention from status '{order.Status}'.");
+        }
+
+        await _processRepository.UpdateAsync(
+            process,
+            cancellationToken);
+    }
+
+    private async Task StageReleasesAsync(
+        OrderPlacementProcess process,
+        IReadOnlyList<OrderPlacementRelease> releases,
+        Guid causationId,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        foreach (var release in releases)
+        {
+            var command =
+                new ReleaseInventoryReservationV1(
+                    release.ReservationRequestId,
+                    process.OrderId.Value,
+                    release.ReservationId,
+                    ReleaseInventoryReservationV1.CompensationReason);
+
+            await _outboxWriter.AddAsync(
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    ReleaseInventoryReservationV1.MessageType,
+                    JsonSerializer.Serialize(
+                        command,
+                        JsonSerializerOptions.Web),
+                    occurredAtUtc,
+                    process.OrderId.Value,
+                    causationId),
+                cancellationToken);
+        }
     }
 
     private async Task<OrderPlacementProcess> LoadProcessForUpdateAsync(
@@ -246,6 +340,28 @@ public sealed class OrderingPaymentOutcomeHandler
                    $"Order '{orderId.Value}' does not exist.");
     }
 
+    private static void EnsureOrderMatchesProcess(
+        OrderPlacementProcess process,
+        Order order)
+    {
+        var expectedStatus =
+            process.State switch
+            {
+                OrderPlacementState.Confirmed =>
+                    OrderStatus.Confirmed,
+                OrderPlacementState.Failed =>
+                    OrderStatus.Failed,
+                _ =>
+                    OrderStatus.Pending
+            };
+
+        if (order.Status != expectedStatus)
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Placement '{process.OrderId.Value}' state '{process.State}' conflicts with order status '{order.Status}'.");
+        }
+    }
+
     private static void EnsureAmountMatches(
         Order order,
         decimal amount,
@@ -262,7 +378,8 @@ public sealed class OrderingPaymentOutcomeHandler
         }
     }
 
-    private static void EnsureCausationId(Guid causationId)
+    private static void EnsureCausationId(
+        Guid causationId)
     {
         if (causationId == Guid.Empty)
         {
