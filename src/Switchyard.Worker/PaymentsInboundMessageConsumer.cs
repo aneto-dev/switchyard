@@ -15,6 +15,8 @@ public sealed class PaymentsInboundMessageConsumer :
 {
     private const string ConsumerName = "payments-authorisation";
     private static readonly TimeSpan ProcessingLease = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan BusyClaimPollInterval =
+        TimeSpan.FromSeconds(5);
 
     private readonly IDbContextFactory<PaymentsDbContext> _dbContextFactory;
     private readonly IPaymentAuthorisationProvider _provider;
@@ -72,34 +74,14 @@ public sealed class PaymentsInboundMessageConsumer :
 
         var amount = ValidateEnvelope(message, command);
 
-        PaymentsInboxClaimResult claim;
-
-        await using (var claimDbContext =
-            await _dbContextFactory.CreateDbContextAsync(
-                cancellationToken))
-        {
-            var inbox =
-                new EfPaymentsInboxMessageProcessor(
-                    claimDbContext,
-                    _timeProvider);
-
-            claim =
-                await inbox.ClaimAsync(
-                    ConsumerName,
-                    message,
-                    ProcessingLease,
-                    cancellationToken);
-        }
+        var claim =
+            await ClaimWhenAvailableAsync(
+                message,
+                cancellationToken);
 
         if (claim.Status == PaymentsInboxClaimStatus.AlreadyProcessed)
         {
             return;
-        }
-
-        if (claim.Status == PaymentsInboxClaimStatus.Busy)
-        {
-            throw new InvalidOperationException(
-                $"Payments inbox message '{message.MessageId}' is already being processed.");
         }
 
         var processingToken =
@@ -137,6 +119,63 @@ public sealed class PaymentsInboundMessageConsumer :
                     token);
             },
             cancellationToken);
+    }
+
+    private async Task<PaymentsInboxClaimResult> ClaimWhenAvailableAsync(
+        IntegrationMessageEnvelope message,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            PaymentsInboxClaimResult claim;
+
+            await using (var claimDbContext =
+                await _dbContextFactory.CreateDbContextAsync(
+                    cancellationToken))
+            {
+                var inbox =
+                    new EfPaymentsInboxMessageProcessor(
+                        claimDbContext,
+                        _timeProvider);
+
+                claim =
+                    await inbox.ClaimAsync(
+                        ConsumerName,
+                        message,
+                        ProcessingLease,
+                        cancellationToken);
+            }
+
+            if (claim.Status !=
+                PaymentsInboxClaimStatus.Busy)
+            {
+                return claim;
+            }
+
+            var lockedUntilUtc =
+                claim.ProcessingLockedUntilUtc ??
+                throw new InvalidOperationException(
+                    "A busy Payments inbox claim requires a lock expiry.");
+
+            var remaining =
+                lockedUntilUtc -
+                _timeProvider.GetUtcNow();
+
+            if (remaining <= TimeSpan.Zero)
+            {
+                await Task.Yield();
+                continue;
+            }
+
+            // A busy durable claim is not a processing failure. Keep this
+            // delivery active while the broker renews its lock rather than
+            // abandoning it repeatedly and exhausting MaxDeliveryCount.
+            await Task.Delay(
+                remaining < BusyClaimPollInterval
+                    ? remaining
+                    : BusyClaimPollInterval,
+                cancellationToken);
+        }
     }
 
     private async Task<IntegrationMessageEnvelope> ResolveOutcomeAsync(

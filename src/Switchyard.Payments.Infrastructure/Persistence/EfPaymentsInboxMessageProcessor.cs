@@ -15,7 +15,8 @@ public enum PaymentsInboxClaimStatus
 public sealed record PaymentsInboxClaimResult(
     PaymentsInboxClaimStatus Status,
     Guid? ProcessingToken,
-    bool Recovered);
+    bool Recovered,
+    DateTimeOffset? ProcessingLockedUntilUtc = null);
 
 public sealed class PaymentsInboxLeaseLostException : Exception
 {
@@ -147,7 +148,9 @@ public sealed class EfPaymentsInboxMessageProcessor
             return new PaymentsInboxClaimResult(
                 PaymentsInboxClaimStatus.Busy,
                 ProcessingToken: null,
-                Recovered: false);
+                Recovered: false,
+                ProcessingLockedUntilUtc:
+                    existing.ProcessingLockedUntilUtc);
         }
 
         existing.ProcessingToken = processingToken;

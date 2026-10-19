@@ -233,6 +233,155 @@ public sealed class PaymentsInboundMessageConsumerTests
     }
 
     [Fact]
+    public async Task BusyInboxClaimWaitsForLeaseAndRecoversClaimedProviderInvocationAsIndeterminate()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var postgres = await StartPostgresAsync(cancellationToken);
+        await ApplyMigrationsAsync(postgres.GetConnectionString(), cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+        var requestedAtUtc =
+            TimeProvider.System.GetUtcNow();
+        var requestId =
+            Guid.NewGuid();
+        var orderId =
+            Guid.NewGuid();
+        var provider =
+            new SimulatedPaymentAuthorisationProvider(
+                SimulatedPaymentAuthorisationScenario.Authorise);
+        var incoming =
+            CreateEnvelope(
+                requestId,
+                orderId,
+                349m,
+                "GBP",
+                requestedAtUtc.AddMinutes(10),
+                requestedAtUtc);
+
+        await using (var paymentDbContext =
+            CreateDbContext(connectionString))
+        {
+            var store =
+                new EfPaymentAuthorisationStore(
+                    paymentDbContext);
+
+            await store.BeginAsync(
+                new PaymentAuthorisationRequest(
+                    requestId,
+                    orderId,
+                    new Switchyard.Payments.Domain.Payments.PaymentAmount(
+                        349m,
+                        "GBP"),
+                    requestedAtUtc),
+                cancellationToken);
+
+            var invocationClaim =
+                await store.ClaimProviderInvocationAsync(
+                    requestId,
+                    TimeProvider.System.GetUtcNow(),
+                    cancellationToken);
+
+            Assert.True(
+                invocationClaim.Acquired);
+        }
+
+        await using (var inboxDbContext =
+            CreateDbContext(connectionString))
+        {
+            var inbox =
+                new EfPaymentsInboxMessageProcessor(
+                    inboxDbContext,
+                    TimeProvider.System);
+
+            var inboxClaim =
+                await inbox.ClaimAsync(
+                    "payments-authorisation",
+                    incoming,
+                    TimeSpan.FromSeconds(3),
+                    cancellationToken);
+
+            Assert.Equal(
+                PaymentsInboxClaimStatus.Claimed,
+                inboxClaim.Status);
+        }
+
+        await using (var busyCheckDbContext =
+            CreateDbContext(connectionString))
+        {
+            var inbox =
+                new EfPaymentsInboxMessageProcessor(
+                    busyCheckDbContext,
+                    TimeProvider.System);
+
+            var busyClaim =
+                await inbox.ClaimAsync(
+                    "payments-authorisation",
+                    incoming,
+                    TimeSpan.FromMinutes(2),
+                    cancellationToken);
+
+            Assert.Equal(
+                PaymentsInboxClaimStatus.Busy,
+                busyClaim.Status);
+            Assert.NotNull(
+                busyClaim.ProcessingLockedUntilUtc);
+            Assert.True(
+                busyClaim.ProcessingLockedUntilUtc!.Value -
+                TimeProvider.System.GetUtcNow() >
+                TimeSpan.FromSeconds(2));
+        }
+
+        var consumer =
+            new PaymentsInboundMessageConsumer(
+                new TestPaymentsDbContextFactory(
+                    connectionString),
+                provider,
+                TimeProvider.System);
+
+        await consumer.ConsumeAsync(
+            incoming,
+            cancellationToken);
+
+        Assert.Equal(
+            0,
+            provider.InvocationCount);
+
+        var payment =
+            await ReadAuthorisationStatusAsync(
+                connectionString,
+                requestId,
+                cancellationToken);
+
+        Assert.Equal(
+            (int)PaymentAuthorisationStatus.Indeterminate,
+            payment);
+
+        Assert.Equal(
+            1,
+            await CountRowsAsync(
+                connectionString,
+                "inbox_messages",
+                cancellationToken));
+
+        Assert.Equal(
+            1,
+            await CountRowsAsync(
+                connectionString,
+                "outbox_messages",
+                cancellationToken));
+
+        var outbox =
+            await ReadSingleOutboxAsync(
+                connectionString,
+                cancellationToken);
+
+        Assert.Equal(
+            PaymentAuthorisationIndeterminateV1.MessageType,
+            outbox.MessageType);
+    }
+
+    [Fact]
     public async Task PendingAttemptThatReappearsAfterDeadlineBecomesIndeterminateWithoutBlindRetry()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
