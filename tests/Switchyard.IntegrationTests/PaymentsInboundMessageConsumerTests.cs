@@ -243,6 +243,10 @@ public sealed class PaymentsInboundMessageConsumerTests
             postgres.GetConnectionString();
         var requestedAtUtc =
             TimeProvider.System.GetUtcNow();
+        requestedAtUtc =
+            requestedAtUtc.AddTicks(
+                -(requestedAtUtc.Ticks %
+                  TimeSpan.TicksPerSecond));
         var requestId =
             Guid.NewGuid();
         var orderId =
