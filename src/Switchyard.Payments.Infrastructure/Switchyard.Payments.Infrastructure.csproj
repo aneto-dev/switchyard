@@ -11,5 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Switchyard.Payments.Application\Switchyard.Payments.Application.csproj" />
     <ProjectReference Include="..\Switchyard.Payments.Domain\Switchyard.Payments.Domain.csproj" />
+    <ProjectReference Include="..\Switchyard.Messaging\Switchyard.Messaging.csproj" />
   </ItemGroup>
 </Project>
