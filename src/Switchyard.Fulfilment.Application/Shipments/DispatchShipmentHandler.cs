@@ -53,13 +53,6 @@ public sealed class DispatchShipmentHandler
                 Guid.NewGuid(),
                 command.DispatchedAtUtc);
 
-        if (!decision.Replayed)
-        {
-            await _repository.SaveAsync(
-                request,
-                cancellationToken);
-        }
-
         if (decision.CaptureRequired)
         {
             var capture =
@@ -78,6 +71,13 @@ public sealed class DispatchShipmentHandler
                     command.DispatchedAtUtc,
                     request.OrderId,
                     command.CausationId),
+                cancellationToken);
+        }
+
+        if (!decision.Replayed)
+        {
+            await _repository.SaveAsync(
+                request,
                 cancellationToken);
         }
 
