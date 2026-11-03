@@ -581,6 +581,7 @@ public sealed class PaymentsInboundMessageConsumerTests
         return new PaymentsInboundMessageConsumer(
             new TestPaymentsDbContextFactory(connectionString),
             provider,
+            provider,
             new FixedTimeProvider(nowUtc));
     }
 

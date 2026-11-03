@@ -175,6 +175,7 @@ public sealed class PaymentAuthorisationInvocationSafetyTests
         var consumer = new PaymentsInboundMessageConsumer(
             new TestPaymentsDbContextFactory(connectionString),
             provider,
+            provider,
             timeProvider);
 
         var firstTask = consumer.ConsumeAsync(
