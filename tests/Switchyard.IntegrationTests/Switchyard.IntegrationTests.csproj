@@ -14,6 +14,9 @@
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Switchyard.Fulfilment.Application\Switchyard.Fulfilment.Application.csproj" />
+    <ProjectReference Include="..\..\src\Switchyard.Fulfilment.Domain\Switchyard.Fulfilment.Domain.csproj" />
+    <ProjectReference Include="..\..\src\Switchyard.Fulfilment.Infrastructure\Switchyard.Fulfilment.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.IntegrationContracts\Switchyard.IntegrationContracts.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Messaging\Switchyard.Messaging.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Ordering.Domain\Switchyard.Ordering.Domain.csproj" />

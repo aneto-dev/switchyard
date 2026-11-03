@@ -104,6 +104,29 @@
                     }
                   }
                 ]
+              },
+              {
+                "Name": "fulfilment",
+                "Properties": {
+                  "DeadLetteringOnMessageExpiration": true,
+                  "DefaultMessageTimeToLive": "PT1H",
+                  "LockDuration": "PT1M",
+                  "MaxDeliveryCount": 5,
+                  "ForwardDeadLetteredMessagesTo": "",
+                  "ForwardTo": "",
+                  "RequiresSession": false
+                },
+                "Rules": [
+                  {
+                    "Name": "fulfilment-inbound",
+                    "Properties": {
+                      "FilterType": "Sql",
+                      "SqlFilter": {
+                        "SqlExpression": "sys.label = 'ordering.event.confirmed.v1'"
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }

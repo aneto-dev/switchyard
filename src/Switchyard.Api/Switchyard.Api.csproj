@@ -11,6 +11,7 @@
     <ProjectReference Include="..\Switchyard.Messaging\Switchyard.Messaging.csproj" />
     <ProjectReference Include="..\Switchyard.Ordering.Application\Switchyard.Ordering.Application.csproj" />
     <ProjectReference Include="..\Switchyard.Ordering.Infrastructure\Switchyard.Ordering.Infrastructure.csproj" />
+    <ProjectReference Include="..\Switchyard.Fulfilment.Infrastructure\Switchyard.Fulfilment.Infrastructure.csproj" />
     <ProjectReference Include="..\Switchyard.Inventory.Infrastructure\Switchyard.Inventory.Infrastructure.csproj" />
     <ProjectReference Include="..\Switchyard.Payments.Infrastructure\Switchyard.Payments.Infrastructure.csproj" />
   </ItemGroup>

@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Switchyard.Fulfilment.Domain</AssemblyName>
+    <RootNamespace>Switchyard.Fulfilment.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

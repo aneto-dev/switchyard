@@ -6,6 +6,7 @@ All notable Switchyard changes will be recorded here.
 
 ### Added
 
+- Fulfilment foundation that consumes confirmed orders idempotently into Fulfilment-owned work.
 - First Ordering domain slice with the Order aggregate and order lines.
 - Application use case for creating pending orders through explicit ports.
 - Ordering-owned PostgreSQL persistence through EF Core and Npgsql.

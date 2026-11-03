@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.5.0 Reliable Messaging - in development**
+**v0.6.0 Fulfilment and cancellation - in development**
 
-The v0.2 Ordering core, v0.3 Inventory reservation lifecycle and v0.4 Payments milestone are complete. v0.5 starts with the transactional messaging foundation used by the durable order-placement workflow.
+The v0.2 Ordering core, v0.3 Inventory reservation lifecycle, v0.4 Payments and v0.5 reliable messaging milestones are complete. v0.6 starts by turning confirmed orders into durable Fulfilment work.
 
 Implemented so far:
 
@@ -66,6 +66,8 @@ Implemented so far:
 - explicit Inventory release commands for rejection compensation, including late reservations
 - durable Inventory release-command consumption with atomic inbox, reservation lifecycle and outbox handling
 - released/expired Inventory outcomes that complete Ordering compensation before the order fails
+- Fulfilment consumes confirmed-order events through its own durable inbox
+- confirmed order lines are copied into an idempotent Fulfilment request without reaching back into Ordering
 - domain, application, API and architecture tests
 
 The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.
@@ -132,6 +134,7 @@ docker compose -f infrastructure/local/compose.yml up -d postgres
 ./scripts/apply-ordering-migrations.ps1
 ./scripts/apply-inventory-migrations.ps1
 ./scripts/apply-payments-migrations.ps1
+./scripts/apply-fulfilment-migrations.ps1
 dotnet restore Switchyard.sln
 dotnet build Switchyard.sln -c Release --no-restore
 dotnet test Switchyard.sln -c Release --no-build
@@ -159,7 +162,7 @@ Set the Ordering, Inventory and Payments PostgreSQL connection strings and the l
 dotnet run --project src/Switchyard.Worker
 ```
 
-The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1` and an active `payments` subscription for `payments.command.*`. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
+The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1`, an active `payments` subscription for `payments.command.*` and a `fulfilment` subscription for `ordering.event.confirmed.v1`. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
 
 Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
 
@@ -230,6 +233,9 @@ src/
   Switchyard.Inventory.Domain/
   Switchyard.Inventory.Application/
   Switchyard.Inventory.Infrastructure/
+  Switchyard.Fulfilment.Domain/
+  Switchyard.Fulfilment.Application/
+  Switchyard.Fulfilment.Infrastructure/
   Switchyard.Payments.Domain/
   Switchyard.Payments.Application/
   Switchyard.Payments.Infrastructure/
@@ -263,8 +269,8 @@ More projects are added only when they contain real implementation.
 - v0.2 - Order Management Core - complete
 - v0.3 - Inventory Reservation - complete
 - v0.4 - Payments and provider simulation - complete
-- v0.5 - Messaging, outbox/inbox and durable placement workflow - in progress
-- v0.6 - Fulfilment and cancellation
+- v0.5 - Messaging, outbox/inbox and durable placement workflow - complete
+- v0.6 - Fulfilment and cancellation - in progress
 - v0.7 - Returns and refunds
 - v0.8 - Customer and Operations product experience
 - v0.9 - Security, observability and production hardening
