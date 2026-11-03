@@ -135,6 +135,20 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             now.AddSeconds(20),
             payload.ConfirmedAtUtc);
+        Assert.Collection(
+            payload.Lines,
+            line =>
+            {
+                Assert.Equal("BIKE-001", line.SkuCode);
+                Assert.Equal("Road Bike", line.ProductName);
+                Assert.Equal(1, line.Quantity);
+            },
+            line =>
+            {
+                Assert.Equal("HELMET-001", line.SkuCode);
+                Assert.Equal("Helmet", line.ProductName);
+                Assert.Equal(1, line.Quantity);
+            });
     }
 
     [Fact]

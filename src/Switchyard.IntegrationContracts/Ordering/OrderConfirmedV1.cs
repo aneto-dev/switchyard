@@ -5,7 +5,8 @@ public sealed record OrderConfirmedV1(
     string OrderNumber,
     decimal TotalAmount,
     string Currency,
-    DateTimeOffset ConfirmedAtUtc)
+    DateTimeOffset ConfirmedAtUtc,
+    IReadOnlyList<OrderConfirmedLineV1> Lines)
 {
     public const string MessageType = "ordering.event.confirmed.v1";
 }

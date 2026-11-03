@@ -5,6 +5,8 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Fulfilment.Application\Switchyard.Fulfilment.Application.csproj" />
+    <ProjectReference Include="..\Switchyard.Fulfilment.Infrastructure\Switchyard.Fulfilment.Infrastructure.csproj" />
     <ProjectReference Include="..\Switchyard.IntegrationContracts\Switchyard.IntegrationContracts.csproj" />
     <ProjectReference Include="..\Switchyard.Inventory.Application\Switchyard.Inventory.Application.csproj" />
     <ProjectReference Include="..\Switchyard.Inventory.Infrastructure\Switchyard.Inventory.Infrastructure.csproj" />

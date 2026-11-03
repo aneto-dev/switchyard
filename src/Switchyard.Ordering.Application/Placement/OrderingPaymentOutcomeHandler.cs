@@ -318,7 +318,16 @@ public sealed class OrderingPaymentOutcomeHandler
                 order.OrderNumber.Value,
                 order.Total.Amount,
                 order.Total.Currency,
-                confirmedAtUtc);
+                confirmedAtUtc,
+                order.Lines
+                     .Select(
+                         line =>
+                             new OrderConfirmedLineV1(
+                                 line.Id.Value,
+                                 line.Product.SkuCode.Value,
+                                 line.Product.ProductName,
+                                 line.Quantity))
+                     .ToArray());
 
         await _outboxWriter.AddAsync(
             new IntegrationMessageEnvelope(
