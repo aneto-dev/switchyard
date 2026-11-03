@@ -70,6 +70,9 @@ Implemented so far:
 - confirmed order lines are copied into an idempotent Fulfilment request without reaching back into Ordering
 - Fulfilment units can prepare partial quantities across multiple units while preserving the remaining cancellable quantity
 - Fulfilment owns the prepare-vs-cancel race under a row lock and durably records accepted or rejected cancellation decisions
+- prepared fulfilment units can be grouped into shipments
+- first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
+- Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - domain, application, API and architecture tests
 
 The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.
