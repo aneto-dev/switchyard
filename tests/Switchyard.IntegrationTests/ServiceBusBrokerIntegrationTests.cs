@@ -1,7 +1,14 @@
+using System.Text.Json;
 using Azure.Messaging.ServiceBus;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Messaging.ServiceBus;
+using Switchyard.Payments.Infrastructure.Persistence;
+using Switchyard.Payments.Infrastructure.ProviderSimulation;
+using Switchyard.Worker;
+using Testcontainers.PostgreSql;
 
 namespace Switchyard.IntegrationTests;
 
@@ -471,6 +478,197 @@ public sealed class ServiceBusBrokerIntegrationTests
         Assert.Null(orderingDelivery);
     }
 
+    [Fact]
+    [Trait("Category", "ServiceBusEmulator")]
+    public async Task PaymentAuthorisationCommandConsumesAndPublishesOutcomeThroughRealBroker()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        var connectionString =
+            GetConnectionString();
+
+        await using var postgres =
+            new PostgreSqlBuilder("postgres:18-alpine")
+                .WithDatabase("switchyard_servicebus_payments_e2e")
+                .WithUsername("switchyard")
+                .WithPassword("switchyard-test-only")
+                .Build();
+
+        await postgres.StartAsync(
+            cancellationToken);
+
+        var paymentsConnectionString =
+            postgres.GetConnectionString();
+
+        await using (var migrations =
+                     CreatePaymentsDbContext(
+                         paymentsConnectionString))
+        {
+            await migrations.Database.MigrateAsync(
+                cancellationToken);
+        }
+
+        var nowUtc =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                18,
+                0,
+                0,
+                TimeSpan.Zero);
+
+        var requestId =
+            Guid.NewGuid();
+        var orderId =
+            Guid.NewGuid();
+
+        var command =
+            new AuthorisePaymentV1(
+                requestId,
+                orderId,
+                1299.99m,
+                "GBP",
+                nowUtc.AddMinutes(10));
+
+        var envelope =
+            new IntegrationMessageEnvelope(
+                requestId,
+                AuthorisePaymentV1.MessageType,
+                JsonSerializer.Serialize(
+                    command,
+                    JsonSerializerOptions.Web),
+                nowUtc,
+                orderId,
+                Guid.NewGuid());
+
+        await using var client =
+            new ServiceBusClient(
+                connectionString);
+
+        await using var sender =
+            client.CreateSender(
+                TopicName);
+
+        await using var paymentsReceiver =
+            client.CreateReceiver(
+                TopicName,
+                PaymentsSubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        await using var orderingReceiver =
+            client.CreateReceiver(
+                TopicName,
+                SubscriptionName,
+                new ServiceBusReceiverOptions
+                {
+                    ReceiveMode =
+                        ServiceBusReceiveMode.PeekLock
+                });
+
+        var transport =
+            new ServiceBusMessageTransport(
+                sender);
+
+        await transport.PublishAsync(
+            envelope,
+            cancellationToken);
+
+        var paymentDelivery =
+            await ReceiveExpectedAsync(
+                paymentsReceiver,
+                envelope.MessageId,
+                cancellationToken);
+
+        var provider =
+            new SimulatedPaymentAuthorisationProvider(
+                SimulatedPaymentAuthorisationScenario.Authorise);
+
+        var dbContextFactory =
+            new TestPaymentsDbContextFactory(
+                paymentsConnectionString);
+
+        var timeProvider =
+            new FixedTimeProvider(
+                nowUtc);
+
+        var consumer =
+            new PaymentsInboundMessageConsumer(
+                dbContextFactory,
+                provider,
+                timeProvider);
+
+        var processor =
+            new ServiceBusInboundMessageProcessor(
+                consumer,
+                new ServiceBusReceiveOptions(
+                    PaymentsSubscriptionName,
+                    retryBaseDelay: TimeSpan.Zero,
+                    retryMaxDelay: TimeSpan.Zero,
+                    retryJitterRatio: 0),
+                timeProvider,
+                NullLogger<ServiceBusInboundMessageProcessor>.Instance);
+
+        await processor.ProcessAsync(
+            new ProcessMessageEventArgs(
+                paymentDelivery,
+                paymentsReceiver,
+                "payments-servicebus-e2e",
+                cancellationToken));
+
+        Assert.Equal(
+            1,
+            provider.InvocationCount);
+
+        var dispatchCycle =
+            new PaymentsOutboxDispatchCycle(
+                dbContextFactory,
+                transport,
+                new FixedTimeProvider(
+                    nowUtc.AddSeconds(1)),
+                new PaymentsOutboxWorkerOptions(
+                    10,
+                    TimeSpan.FromMinutes(1),
+                    TimeSpan.Zero,
+                    TimeSpan.FromMilliseconds(100)));
+
+        var dispatch =
+            await dispatchCycle.DispatchAsync(
+                cancellationToken);
+
+        Assert.Equal(
+            1,
+            dispatch.Published);
+
+        var outcome =
+            await ReceiveExpectedSubjectAsync(
+                orderingReceiver,
+                PaymentAuthorisedV1.MessageType,
+                orderId,
+                cancellationToken);
+
+        Assert.Equal(
+            orderId.ToString("D"),
+            outcome.CorrelationId);
+
+        await orderingReceiver.CompleteMessageAsync(
+            outcome,
+            cancellationToken);
+
+        var paymentRedelivery =
+            await paymentsReceiver.ReceiveMessageAsync(
+                TimeSpan.FromSeconds(2),
+                cancellationToken);
+
+        Assert.Null(
+            paymentRedelivery);
+    }
+
     private static ServiceBusInboundMessageProcessor CreateProcessor(
         IIntegrationMessageConsumer consumer) =>
         new(
@@ -542,6 +740,106 @@ public sealed class ServiceBusBrokerIntegrationTests
 
         throw new TimeoutException(
             $"Service Bus message '{messageId}' was not received within 20 seconds.");
+    }
+
+    private static async Task<ServiceBusReceivedMessage> ReceiveExpectedSubjectAsync(
+        ServiceBusReceiver receiver,
+        string messageType,
+        Guid correlationId,
+        CancellationToken cancellationToken)
+    {
+        var deadline =
+            DateTimeOffset.UtcNow.AddSeconds(
+                20);
+
+        var expectedCorrelationId =
+            correlationId.ToString("D");
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var received =
+                await receiver.ReceiveMessageAsync(
+                    TimeSpan.FromSeconds(2),
+                    cancellationToken);
+
+            if (received is null)
+            {
+                continue;
+            }
+
+            if (string.Equals(
+                    received.Subject,
+                    messageType,
+                    StringComparison.Ordinal) &&
+                string.Equals(
+                    received.CorrelationId,
+                    expectedCorrelationId,
+                    StringComparison.Ordinal))
+            {
+                return received;
+            }
+
+            await receiver.CompleteMessageAsync(
+                received,
+                cancellationToken);
+        }
+
+        throw new TimeoutException(
+            $"Service Bus subject '{messageType}' for correlation '{expectedCorrelationId}' was not received within 20 seconds.");
+    }
+
+    private static PaymentsDbContext CreatePaymentsDbContext(
+        string connectionString)
+    {
+        var options =
+            new DbContextOptionsBuilder<PaymentsDbContext>()
+                .UseNpgsql(
+                    connectionString)
+                .Options;
+
+        return new PaymentsDbContext(
+            options);
+    }
+
+    private sealed class TestPaymentsDbContextFactory :
+        IDbContextFactory<PaymentsDbContext>
+    {
+        private readonly string _connectionString;
+
+        public TestPaymentsDbContextFactory(
+            string connectionString)
+        {
+            _connectionString =
+                connectionString;
+        }
+
+        public PaymentsDbContext CreateDbContext() =>
+            ServiceBusBrokerIntegrationTests.CreatePaymentsDbContext(
+                _connectionString);
+
+        public Task<PaymentsDbContext> CreateDbContextAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                CreateDbContext());
+        }
+    }
+
+    private sealed class FixedTimeProvider : TimeProvider
+    {
+        private readonly DateTimeOffset _utcNow;
+
+        public FixedTimeProvider(
+            DateTimeOffset utcNow)
+        {
+            _utcNow =
+                utcNow;
+        }
+
+        public override DateTimeOffset GetUtcNow() =>
+            _utcNow;
     }
 
     private sealed class DelegateConsumer : IIntegrationMessageConsumer

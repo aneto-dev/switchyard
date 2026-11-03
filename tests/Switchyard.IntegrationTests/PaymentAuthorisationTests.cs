@@ -182,7 +182,7 @@ public sealed class PaymentAuthorisationTests
     }
 
     [Fact]
-    public async Task ConcurrentDuplicateRequestProducesOneProviderSideEffectAndOnePayment()
+    public async Task ConcurrentDuplicateRequestNeverInvokesProviderTwiceAndCreatesOnePayment()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         await using var postgres = await StartPostgresAsync(cancellationToken);
@@ -234,12 +234,26 @@ public sealed class PaymentAuthorisationTests
 
         Assert.All(
             results,
-            result => Assert.Equal(
-                PaymentAuthorisationStatus.Authorised,
-                result.Status));
+            result => Assert.True(
+                result.Status is
+                    PaymentAuthorisationStatus.Authorised or
+                    PaymentAuthorisationStatus.Indeterminate));
+
         Assert.Equal(results[0].PaymentId, results[1].PaymentId);
-        Assert.Equal(results[0].ProviderReference, results[1].ProviderReference);
+        Assert.Equal(1, provider.InvocationCount);
         Assert.Equal(1, provider.UniqueAuthorisationCount);
+
+        var row = await ReadPaymentAsync(
+            postgres.GetConnectionString(),
+            orderId,
+            cancellationToken);
+
+        Assert.Equal(row.IntentStatus, row.AttemptStatus);
+        Assert.True(
+            row.IntentStatus ==
+                (int)PaymentAuthorisationStatus.Authorised ||
+            row.IntentStatus ==
+                (int)PaymentAuthorisationStatus.Indeterminate);
 
         Assert.Equal(
             1,

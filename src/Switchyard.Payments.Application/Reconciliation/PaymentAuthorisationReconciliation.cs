@@ -6,4 +6,5 @@ public sealed record PaymentAuthorisationReconciliation(
     Guid RequestId,
     PaymentAuthorisationStatus Status,
     string? ProviderReference,
+    int ExpectedAttemptCount,
     DateTimeOffset ReconciledAtUtc);

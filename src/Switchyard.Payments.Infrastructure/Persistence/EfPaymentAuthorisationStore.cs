@@ -64,6 +64,7 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
                 ProviderReference = null,
                 Status = PaymentAuthorisationStatus.AuthorisationPending,
                 RequestedAtUtc = request.RequestedAtUtc,
+                ProviderInvocationClaimedAtUtc = null,
                 ResolvedAtUtc = null
             };
 
@@ -102,6 +103,104 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
                 "The concurrent payment authorisation could not be resolved after the database conflict.",
                 exception);
         }
+    }
+
+    public async Task<PaymentAuthorisationProviderInvocationClaim> ClaimProviderInvocationAsync(
+        Guid requestId,
+        DateTimeOffset claimedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (requestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment authorisation request ID cannot be empty.",
+                nameof(requestId));
+        }
+
+        var normalizedClaimedAtUtc = claimedAtUtc.ToUniversalTime();
+
+        // BeginAsync can leave newly-created records tracked in this context.
+        // Clear them before taking the row lock so the claim always reflects
+        // the latest durable database state.
+        _dbContext.ChangeTracker.Clear();
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+
+        var attempt = await _dbContext.AuthorisationAttempts
+                                      .FromSqlInterpolated(
+                                          $"""
+                                          SELECT *
+                                          FROM payments.authorisation_attempts
+                                          WHERE request_id = {requestId}
+                                          FOR UPDATE
+                                          """)
+                                      .SingleOrDefaultAsync(cancellationToken);
+
+        if (attempt is null)
+        {
+            throw new InvalidOperationException(
+                $"Payment authorisation request '{requestId}' does not exist.");
+        }
+
+        var intent = await _dbContext.PaymentIntents
+                                     .SingleAsync(
+                                         record => record.PaymentId == attempt.PaymentId,
+                                         cancellationToken);
+
+        if (intent.AuthorisationStatus != attempt.Status)
+        {
+            throw new InvalidOperationException(
+                "Payment intent and authorisation attempt states are inconsistent.");
+        }
+
+        if (attempt.Status != PaymentAuthorisationStatus.AuthorisationPending)
+        {
+            var terminalDecision =
+                ToDecision(intent, attempt, replayed: true);
+
+            await transaction.CommitAsync(cancellationToken);
+            _dbContext.ChangeTracker.Clear();
+
+            return new PaymentAuthorisationProviderInvocationClaim(
+                terminalDecision,
+                Acquired: false);
+        }
+
+        if (attempt.ProviderInvocationClaimedAtUtc.HasValue)
+        {
+            var existingClaim =
+                ToDecision(intent, attempt, replayed: true);
+
+            await transaction.CommitAsync(cancellationToken);
+            _dbContext.ChangeTracker.Clear();
+
+            return new PaymentAuthorisationProviderInvocationClaim(
+                existingClaim,
+                Acquired: false);
+        }
+
+        if (normalizedClaimedAtUtc < attempt.RequestedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(claimedAtUtc),
+                "Provider invocation cannot be claimed before the authorisation request.");
+        }
+
+        attempt.ProviderInvocationClaimedAtUtc =
+            normalizedClaimedAtUtc;
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+
+        var acquiredDecision =
+            ToDecision(intent, attempt, replayed: false);
+
+        await transaction.CommitAsync(cancellationToken);
+        _dbContext.ChangeTracker.Clear();
+
+        return new PaymentAuthorisationProviderInvocationClaim(
+            acquiredDecision,
+            Acquired: true);
     }
 
     public async Task<PaymentAuthorisationDecision> CompleteAsync(
@@ -173,6 +272,37 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
         await transaction.CommitAsync(cancellationToken);
 
         return ToDecision(intent, attempt, replayed: false);
+    }
+
+    public async Task<PaymentAuthorisationDecision?> FindByRequestIdAsync(
+        Guid requestId,
+        CancellationToken cancellationToken)
+    {
+        if (requestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment authorisation request ID cannot be empty.",
+                nameof(requestId));
+        }
+
+        var existing = await (
+            from attempt in _dbContext.AuthorisationAttempts.AsNoTracking()
+            join intent in _dbContext.PaymentIntents.AsNoTracking()
+                on attempt.PaymentId equals intent.PaymentId
+            where attempt.RequestId == requestId
+            select new
+            {
+                Attempt = attempt,
+                Intent = intent
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return existing is null
+            ? null
+            : ToDecision(
+                existing.Intent,
+                existing.Attempt,
+                replayed: true);
     }
 
     private async Task<PaymentAuthorisationDecision?> GetExistingDecisionAsync(

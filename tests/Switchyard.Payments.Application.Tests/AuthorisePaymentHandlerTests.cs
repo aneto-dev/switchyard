@@ -206,6 +206,19 @@ public sealed class AuthorisePaymentHandlerTests
             return Task.FromResult(_beginDecision);
         }
 
+        public Task<PaymentAuthorisationProviderInvocationClaim> ClaimProviderInvocationAsync(
+            Guid requestId,
+            DateTimeOffset claimedAtUtc,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                new PaymentAuthorisationProviderInvocationClaim(
+                    _beginDecision,
+                    Acquired: true));
+        }
+
         public Task<PaymentAuthorisationDecision> CompleteAsync(
             PaymentAuthorisationCompletion completion, CancellationToken cancellationToken)
         {
