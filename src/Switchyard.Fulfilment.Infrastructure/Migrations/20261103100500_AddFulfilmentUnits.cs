@@ -1,10 +1,14 @@
 using System;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Switchyard.Fulfilment.Infrastructure.Persistence;
 
 #nullable disable
 
 namespace Switchyard.Fulfilment.Infrastructure.Migrations;
 
+[DbContext(typeof(FulfilmentDbContext))]
+[Migration("20261103100500_AddFulfilmentUnits")]
 public partial class AddFulfilmentUnits : Migration
 {
     protected override void Up(
