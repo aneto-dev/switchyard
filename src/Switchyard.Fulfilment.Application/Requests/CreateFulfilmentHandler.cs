@@ -115,6 +115,23 @@ public interface IFulfilmentRequestRepository
     Task AddAsync(
         FulfilmentRequest request,
         CancellationToken cancellationToken);
+
+    Task<IFulfilmentRequestTransaction> BeginTransactionAsync(
+        CancellationToken cancellationToken);
+
+    Task<FulfilmentRequest?> GetByOrderIdForUpdateAsync(
+        Guid orderId,
+        CancellationToken cancellationToken);
+
+    Task SaveAsync(
+        FulfilmentRequest request,
+        CancellationToken cancellationToken);
+}
+
+public interface IFulfilmentRequestTransaction : IAsyncDisposable
+{
+    Task CommitAsync(
+        CancellationToken cancellationToken);
 }
 
 public sealed class FulfilmentRequestConflictException : Exception
