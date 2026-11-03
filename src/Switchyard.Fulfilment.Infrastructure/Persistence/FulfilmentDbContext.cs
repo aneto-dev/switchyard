@@ -34,6 +34,9 @@ public sealed class FulfilmentDbContext : DbContext
     internal DbSet<FulfilmentShipmentUnitRecord> ShipmentUnits =>
         Set<FulfilmentShipmentUnitRecord>();
 
+    internal DbSet<FulfilmentOutboxMessageRecord> OutboxMessages =>
+        Set<FulfilmentOutboxMessageRecord>();
+
     internal DbSet<FulfilmentInboxMessageRecord> InboxMessages =>
         Set<FulfilmentInboxMessageRecord>();
 
@@ -414,6 +417,90 @@ public sealed class FulfilmentDbContext : DbContext
                         record.ShipmentId
                     })
                 .OnDelete(DeleteBehavior.Cascade);
+
+        var outbox =
+            modelBuilder.Entity<FulfilmentOutboxMessageRecord>();
+
+        outbox.ToTable(
+            "outbox_messages",
+            "fulfilment",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_fulfilment_outbox_message_type",
+                    "btrim(message_type) <> ''");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_outbox_delivery_attempt_count",
+                    "delivery_attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_outbox_attempt_shape",
+                    "(delivery_attempt_count = 0 AND last_attempt_at_utc IS NULL) OR " +
+                    "(delivery_attempt_count > 0 AND last_attempt_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_outbox_lock_shape",
+                    "(lock_token IS NULL AND locked_until_utc IS NULL) OR " +
+                    "(lock_token IS NOT NULL AND locked_until_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_outbox_published_time",
+                    "published_at_utc IS NULL OR published_at_utc >= occurred_at_utc");
+            });
+
+        outbox.HasKey(record => record.MessageId)
+              .HasName("pk_fulfilment_outbox_messages");
+
+        outbox.Property(record => record.MessageId)
+              .HasColumnName("message_id");
+
+        outbox.Property(record => record.MessageType)
+              .HasColumnName("message_type")
+              .HasMaxLength(200)
+              .IsRequired();
+
+        outbox.Property(record => record.PayloadJson)
+              .HasColumnName("payload")
+              .HasColumnType("jsonb")
+              .IsRequired();
+
+        outbox.Property(record => record.OccurredAtUtc)
+              .HasColumnName("occurred_at_utc");
+
+        outbox.Property(record => record.CorrelationId)
+              .HasColumnName("correlation_id");
+
+        outbox.Property(record => record.CausationId)
+              .HasColumnName("causation_id");
+
+        outbox.Property(record => record.AvailableAtUtc)
+              .HasColumnName("available_at_utc");
+
+        outbox.Property(record => record.DeliveryAttemptCount)
+              .HasColumnName("delivery_attempt_count");
+
+        outbox.Property(record => record.LastAttemptAtUtc)
+              .HasColumnName("last_attempt_at_utc");
+
+        outbox.Property(record => record.LockToken)
+              .HasColumnName("lock_token");
+
+        outbox.Property(record => record.LockedUntilUtc)
+              .HasColumnName("locked_until_utc");
+
+        outbox.Property(record => record.PublishedAtUtc)
+              .HasColumnName("published_at_utc");
+
+        outbox.Property(record => record.LastError)
+              .HasColumnName("last_error")
+              .HasMaxLength(200);
+
+        outbox.HasIndex(
+                record => new
+                {
+                    record.AvailableAtUtc,
+                    record.LockedUntilUtc,
+                    record.OccurredAtUtc
+                })
+              .HasDatabaseName("ix_fulfilment_outbox_due")
+              .HasFilter("published_at_utc IS NULL");
 
         var inbox =
             modelBuilder.Entity<FulfilmentInboxMessageRecord>();
