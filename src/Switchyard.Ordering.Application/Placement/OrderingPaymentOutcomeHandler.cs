@@ -110,6 +110,7 @@ public sealed class OrderingPaymentOutcomeHandler
 
             await StageOrderConfirmedAsync(
                 order,
+                outcome.PaymentId,
                 causationId,
                 handledAtUtc,
                 cancellationToken);
@@ -308,6 +309,7 @@ public sealed class OrderingPaymentOutcomeHandler
 
     private async Task StageOrderConfirmedAsync(
         Order order,
+        Guid paymentId,
         Guid causationId,
         DateTimeOffset confirmedAtUtc,
         CancellationToken cancellationToken)
@@ -315,6 +317,7 @@ public sealed class OrderingPaymentOutcomeHandler
         var integrationEvent =
             new OrderConfirmedV1(
                 order.Id.Value,
+                paymentId,
                 order.OrderNumber.Value,
                 order.Total.Amount,
                 order.Total.Currency,

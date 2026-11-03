@@ -5,6 +5,7 @@ namespace Switchyard.Fulfilment.Infrastructure.Persistence;
 internal sealed class FulfilmentRequestRecord
 {
     public Guid OrderId { get; set; }
+    public Guid PaymentId { get; set; }
     public string OrderNumber { get; set; } = string.Empty;
     public FulfilmentRequestStatus Status { get; set; }
     public DateTimeOffset ConfirmedAtUtc { get; set; }

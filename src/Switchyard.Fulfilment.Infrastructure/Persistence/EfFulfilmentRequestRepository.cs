@@ -51,6 +51,7 @@ public sealed class EfFulfilmentRequestRepository :
             new FulfilmentRequestRecord
             {
                 OrderId = request.OrderId,
+                PaymentId = request.PaymentId,
                 OrderNumber = request.OrderNumber,
                 Status = request.Status,
                 ConfirmedAtUtc = request.ConfirmedAtUtc
@@ -248,6 +249,7 @@ public sealed class EfFulfilmentRequestRepository :
         FulfilmentRequestRecord record) =>
         FulfilmentRequest.Rehydrate(
             record.OrderId,
+            record.PaymentId,
             record.OrderNumber,
             record.Lines
                   .OrderBy(line => line.Position)

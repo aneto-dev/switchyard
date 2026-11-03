@@ -58,6 +58,9 @@ public sealed class FulfilmentDbContext : DbContext
         request.Property(record => record.OrderId)
                .HasColumnName("order_id");
 
+        request.Property(record => record.PaymentId)
+               .HasColumnName("payment_id");
+
         request.Property(record => record.OrderNumber)
                .HasColumnName("order_number")
                .HasMaxLength(50)

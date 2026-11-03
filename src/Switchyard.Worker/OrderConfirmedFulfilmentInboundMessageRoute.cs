@@ -51,6 +51,7 @@ public sealed class OrderConfirmedFulfilmentInboundMessageRoute :
             await handler.HandleAsync(
                 new CreateFulfilmentCommand(
                     confirmed.OrderId,
+                    confirmed.PaymentId,
                     confirmed.OrderNumber,
                     confirmed.Lines.Select(
                         line =>
@@ -80,6 +81,7 @@ public sealed class OrderConfirmedFulfilmentInboundMessageRoute :
         OrderConfirmedV1 confirmed)
     {
         if (confirmed.OrderId == Guid.Empty ||
+            confirmed.PaymentId == Guid.Empty ||
             string.IsNullOrWhiteSpace(
                 confirmed.OrderNumber) ||
             confirmed.TotalAmount < 0 ||

@@ -8,6 +8,7 @@ public sealed class FulfilmentRequest
 
     private FulfilmentRequest(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IReadOnlyList<FulfilmentRequestLine> lines,
         IEnumerable<FulfilmentUnit> units,
@@ -16,6 +17,7 @@ public sealed class FulfilmentRequest
         FulfilmentRequestStatus status)
     {
         OrderId = orderId;
+        PaymentId = paymentId;
         OrderNumber = orderNumber;
         _lines = lines;
         _units = units.ToList();
@@ -25,6 +27,8 @@ public sealed class FulfilmentRequest
     }
 
     public Guid OrderId { get; }
+
+    public Guid PaymentId { get; }
 
     public string OrderNumber { get; }
 
@@ -40,11 +44,13 @@ public sealed class FulfilmentRequest
 
     public static FulfilmentRequest Create(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IEnumerable<FulfilmentRequestLine> lines,
         DateTimeOffset confirmedAtUtc) =>
         Rehydrate(
             orderId,
+            paymentId,
             orderNumber,
             lines,
             confirmedAtUtc,
@@ -54,6 +60,7 @@ public sealed class FulfilmentRequest
 
     public static FulfilmentRequest Rehydrate(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IEnumerable<FulfilmentRequestLine> lines,
         DateTimeOffset confirmedAtUtc,
@@ -66,6 +73,13 @@ public sealed class FulfilmentRequest
             throw new ArgumentException(
                 "Fulfilment order ID cannot be empty.",
                 nameof(orderId));
+        }
+
+        if (paymentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Fulfilment payment ID cannot be empty.",
+                nameof(paymentId));
         }
 
         if (string.IsNullOrWhiteSpace(orderNumber) ||
@@ -229,6 +243,7 @@ public sealed class FulfilmentRequest
 
         return new FulfilmentRequest(
             orderId,
+            paymentId,
             orderNumber.Trim(),
             Array.AsReadOnly(
                 materializedLines),

@@ -346,6 +346,7 @@ public sealed class FulfilmentProgressionTests
         await handler.HandleAsync(
             new CreateFulfilmentCommand(
                 orderId,
+                Guid.NewGuid(),
                 $"SW-{orderId:N}"[..12],
                 new[]
                 {

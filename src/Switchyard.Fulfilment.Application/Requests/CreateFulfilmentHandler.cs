@@ -24,6 +24,7 @@ public sealed class CreateFulfilmentHandler
         var request =
             FulfilmentRequest.Create(
                 command.OrderId,
+                command.PaymentId,
                 command.OrderNumber,
                 command.Lines.Select(
                     line =>
@@ -63,7 +64,8 @@ public sealed class CreateFulfilmentHandler
         FulfilmentRequest existing,
         FulfilmentRequest requested)
     {
-        if (!string.Equals(
+        if (existing.PaymentId != requested.PaymentId ||
+            !string.Equals(
                 existing.OrderNumber,
                 requested.OrderNumber,
                 StringComparison.Ordinal) ||
@@ -93,6 +95,7 @@ public sealed class CreateFulfilmentHandler
 
 public sealed record CreateFulfilmentCommand(
     Guid OrderId,
+    Guid PaymentId,
     string OrderNumber,
     IReadOnlyList<CreateFulfilmentLine> Lines,
     DateTimeOffset ConfirmedAtUtc);
