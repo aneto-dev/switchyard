@@ -28,6 +28,8 @@ public sealed class EfFulfilmentRequestRepository :
                             .Include(request => request.Lines)
                             .Include(request => request.Units)
                                 .ThenInclude(unit => unit.Lines)
+                            .Include(request => request.Cancellations)
+                                .ThenInclude(cancellation => cancellation.Lines)
                             .SingleOrDefaultAsync(
                                 request =>
                                     request.OrderId ==
@@ -70,7 +72,8 @@ public sealed class EfFulfilmentRequestRepository :
                     SkuCode = line.SkuCode,
                     ProductName = line.ProductName,
                     Quantity = line.Quantity,
-                    PreparedQuantity = line.PreparedQuantity
+                    PreparedQuantity = line.PreparedQuantity,
+                    CancelledQuantity = line.CancelledQuantity
                 });
         }
 
@@ -123,6 +126,13 @@ public sealed class EfFulfilmentRequestRepository :
             .LoadAsync(
                 cancellationToken);
 
+        await _dbContext.Entry(record)
+            .Collection(request => request.Cancellations)
+            .Query()
+            .Include(cancellation => cancellation.Lines)
+            .LoadAsync(
+                cancellationToken);
+
         return Map(
             record);
     }
@@ -155,6 +165,9 @@ public sealed class EfFulfilmentRequestRepository :
 
             persistedLine.PreparedQuantity =
                 line.PreparedQuantity;
+
+            persistedLine.CancelledQuantity =
+                line.CancelledQuantity;
         }
 
         foreach (var unit in request.Units)
@@ -191,6 +204,42 @@ public sealed class EfFulfilmentRequestRepository :
                 persistedUnit);
         }
 
+        foreach (var cancellation in request.Cancellations)
+        {
+            if (record.Cancellations.Any(
+                    candidate =>
+                        candidate.CancellationId ==
+                        cancellation.CancellationId))
+            {
+                continue;
+            }
+
+            var persistedCancellation =
+                new FulfilmentCancellationRecord
+                {
+                    OrderId = request.OrderId,
+                    CancellationId = cancellation.CancellationId,
+                    RequestedAtUtc = cancellation.RequestedAtUtc,
+                    Outcome = cancellation.Outcome,
+                    RejectionReason = cancellation.RejectionReason
+                };
+
+            foreach (var cancellationLine in cancellation.Lines)
+            {
+                persistedCancellation.Lines.Add(
+                    new FulfilmentCancellationLineRecord
+                    {
+                        OrderId = request.OrderId,
+                        CancellationId = cancellation.CancellationId,
+                        OrderLineId = cancellationLine.OrderLineId,
+                        Quantity = cancellationLine.Quantity
+                    });
+            }
+
+            record.Cancellations.Add(
+                persistedCancellation);
+        }
+
         await _dbContext.SaveChangesAsync(
             cancellationToken);
     }
@@ -209,7 +258,8 @@ public sealed class EfFulfilmentRequestRepository :
                               line.SkuCode,
                               line.ProductName,
                               line.Quantity,
-                              line.PreparedQuantity)),
+                              line.PreparedQuantity,
+                              line.CancelledQuantity)),
             record.ConfirmedAtUtc,
             record.Status,
             record.Units
@@ -226,7 +276,24 @@ public sealed class EfFulfilmentRequestRepository :
                                           new FulfilmentUnitLine(
                                               line.OrderLineId,
                                               line.Quantity)),
-                              unit.CreatedAtUtc)));
+                              unit.CreatedAtUtc)),
+            record.Cancellations
+                  .OrderBy(cancellation => cancellation.RequestedAtUtc)
+                  .ThenBy(cancellation => cancellation.CancellationId)
+                  .Select(
+                      cancellation =>
+                          new FulfilmentCancellation(
+                              cancellation.CancellationId,
+                              cancellation.Lines
+                                  .OrderBy(line => line.OrderLineId)
+                                  .Select(
+                                      line =>
+                                          new FulfilmentCancellationLine(
+                                              line.OrderLineId,
+                                              line.Quantity)),
+                              cancellation.RequestedAtUtc,
+                              cancellation.Outcome,
+                              cancellation.RejectionReason)));
 
     private sealed class EfFulfilmentRequestTransaction :
         IFulfilmentRequestTransaction

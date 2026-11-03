@@ -170,6 +170,10 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("integer")
                     .HasColumnName("prepared_quantity");
 
+                b.Property<int>("CancelledQuantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("cancelled_quantity");
+
                 b.Property<string>("ProductName")
                     .IsRequired()
                     .HasMaxLength(200)
@@ -208,6 +212,9 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                             "ck_fulfilment_line_position",
                             "position >= 0");
                         t.HasCheckConstraint(
+                            "ck_fulfilment_line_cancelled_quantity",
+                            "cancelled_quantity >= 0 AND prepared_quantity + cancelled_quantity <= quantity");
+                        t.HasCheckConstraint(
                             "ck_fulfilment_line_prepared_quantity",
                             "prepared_quantity >= 0 AND prepared_quantity <= quantity");
                         t.HasCheckConstraint(
@@ -219,6 +226,88 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                         t.HasCheckConstraint(
                             "ck_fulfilment_line_sku",
                             "btrim(sku_code) <> ''");
+                    });
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("CancellationId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("cancellation_id");
+
+                b.Property<int>("Outcome")
+                    .HasColumnType("integer")
+                    .HasColumnName("outcome");
+
+                b.Property<int?>("RejectionReason")
+                    .HasColumnType("integer")
+                    .HasColumnName("rejection_reason");
+
+                b.Property<DateTimeOffset>("RequestedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("requested_at_utc");
+
+                b.HasKey(
+                    "OrderId",
+                    "CancellationId")
+                    .HasName(
+                        "pk_fulfilment_cancellations");
+
+                b.ToTable(
+                    "cancellations",
+                    "fulfilment",
+                    t =>
+                    {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_cancellation_outcome",
+                            "outcome IN (0, 1)");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_cancellation_shape",
+                            "(outcome = 0 AND rejection_reason IS NULL) OR (outcome = 1 AND rejection_reason = 0)");
+                    });
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationLineRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("CancellationId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("cancellation_id");
+
+                b.Property<Guid>("OrderLineId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_line_id");
+
+                b.Property<int>("Quantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("quantity");
+
+                b.HasKey(
+                    "OrderId",
+                    "CancellationId",
+                    "OrderLineId")
+                    .HasName(
+                        "pk_fulfilment_cancellation_lines");
+
+                b.ToTable(
+                    "cancellation_lines",
+                    "fulfilment",
+                    t =>
+                    {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_cancellation_line_quantity",
+                            "quantity > 0");
                     });
             });
 
@@ -288,6 +377,38 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
+                        "Request")
+                    .WithMany("Cancellations")
+                    .HasForeignKey("OrderId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Request");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationLineRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationRecord",
+                        "Cancellation")
+                    .WithMany("Lines")
+                    .HasForeignKey(
+                        "OrderId",
+                        "CancellationId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Cancellation");
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestLineRecord",
             b =>
             {
@@ -335,9 +456,17 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentCancellationRecord",
+            b =>
+            {
+                b.Navigation("Lines");
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
             b =>
             {
+                b.Navigation("Cancellations");
                 b.Navigation("Lines");
                 b.Navigation("Units");
             });

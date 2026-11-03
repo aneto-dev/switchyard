@@ -10,6 +10,7 @@ internal sealed class FulfilmentRequestRecord
     public DateTimeOffset ConfirmedAtUtc { get; set; }
     public List<FulfilmentRequestLineRecord> Lines { get; } = [];
     public List<FulfilmentUnitRecord> Units { get; } = [];
+    public List<FulfilmentCancellationRecord> Cancellations { get; } = [];
 }
 
 internal sealed class FulfilmentRequestLineRecord
@@ -21,6 +22,7 @@ internal sealed class FulfilmentRequestLineRecord
     public string ProductName { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public int PreparedQuantity { get; set; }
+    public int CancelledQuantity { get; set; }
     public FulfilmentRequestRecord Request { get; set; } = null!;
 }
 
@@ -40,6 +42,26 @@ internal sealed class FulfilmentUnitLineRecord
     public Guid OrderLineId { get; set; }
     public int Quantity { get; set; }
     public FulfilmentUnitRecord Unit { get; set; } = null!;
+}
+
+internal sealed class FulfilmentCancellationRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid CancellationId { get; set; }
+    public DateTimeOffset RequestedAtUtc { get; set; }
+    public FulfilmentCancellationOutcome Outcome { get; set; }
+    public FulfilmentCancellationRejectionReason? RejectionReason { get; set; }
+    public FulfilmentRequestRecord Request { get; set; } = null!;
+    public List<FulfilmentCancellationLineRecord> Lines { get; } = [];
+}
+
+internal sealed class FulfilmentCancellationLineRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid CancellationId { get; set; }
+    public Guid OrderLineId { get; set; }
+    public int Quantity { get; set; }
+    public FulfilmentCancellationRecord Cancellation { get; set; } = null!;
 }
 
 internal sealed class FulfilmentInboxMessageRecord
