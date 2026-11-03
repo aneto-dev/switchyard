@@ -69,6 +69,7 @@ Implemented so far:
 - Fulfilment consumes confirmed-order events through its own durable inbox
 - confirmed order lines are copied into an idempotent Fulfilment request without reaching back into Ordering
 - Fulfilment units can prepare partial quantities across multiple units while preserving the remaining cancellable quantity
+- Fulfilment owns the prepare-vs-cancel race under a row lock and durably records accepted or rejected cancellation decisions
 - domain, application, API and architecture tests
 
 The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.

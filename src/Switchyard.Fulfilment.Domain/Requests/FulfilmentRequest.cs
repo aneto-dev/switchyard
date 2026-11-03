@@ -4,12 +4,14 @@ public sealed class FulfilmentRequest
 {
     private readonly IReadOnlyList<FulfilmentRequestLine> _lines;
     private readonly List<FulfilmentUnit> _units;
+    private readonly List<FulfilmentCancellation> _cancellations;
 
     private FulfilmentRequest(
         Guid orderId,
         string orderNumber,
         IReadOnlyList<FulfilmentRequestLine> lines,
         IEnumerable<FulfilmentUnit> units,
+        IEnumerable<FulfilmentCancellation> cancellations,
         DateTimeOffset confirmedAtUtc,
         FulfilmentRequestStatus status)
     {
@@ -17,6 +19,7 @@ public sealed class FulfilmentRequest
         OrderNumber = orderNumber;
         _lines = lines;
         _units = units.ToList();
+        _cancellations = cancellations.ToList();
         ConfirmedAtUtc = confirmedAtUtc.ToUniversalTime();
         Status = status;
     }
@@ -28,6 +31,8 @@ public sealed class FulfilmentRequest
     public IReadOnlyList<FulfilmentRequestLine> Lines => _lines;
 
     public IReadOnlyList<FulfilmentUnit> Units => _units;
+
+    public IReadOnlyList<FulfilmentCancellation> Cancellations => _cancellations;
 
     public DateTimeOffset ConfirmedAtUtc { get; }
 
@@ -44,6 +49,7 @@ public sealed class FulfilmentRequest
             lines,
             confirmedAtUtc,
             FulfilmentRequestStatus.Pending,
+            [],
             []);
 
     public static FulfilmentRequest Rehydrate(
@@ -52,7 +58,8 @@ public sealed class FulfilmentRequest
         IEnumerable<FulfilmentRequestLine> lines,
         DateTimeOffset confirmedAtUtc,
         FulfilmentRequestStatus status,
-        IEnumerable<FulfilmentUnit>? units = null)
+        IEnumerable<FulfilmentUnit>? units = null,
+        IEnumerable<FulfilmentCancellation>? cancellations = null)
     {
         if (orderId == Guid.Empty)
         {
@@ -124,6 +131,18 @@ public sealed class FulfilmentRequest
                 nameof(units));
         }
 
+        var materializedCancellations =
+            (cancellations ?? []).ToArray();
+
+        if (materializedCancellations
+            .GroupBy(cancellation => cancellation.CancellationId)
+            .Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation IDs must be unique.",
+                nameof(cancellations));
+        }
+
         var lineMap =
             materializedLines.ToDictionary(
                 line => line.OrderLineId);
@@ -138,6 +157,20 @@ public sealed class FulfilmentRequest
                     throw new ArgumentException(
                         "Fulfilment units can only reference lines owned by the request.",
                         nameof(units));
+                }
+            }
+        }
+
+        foreach (var cancellation in materializedCancellations)
+        {
+            foreach (var cancellationLine in cancellation.Lines)
+            {
+                if (!lineMap.ContainsKey(
+                        cancellationLine.OrderLineId))
+                {
+                    throw new ArgumentException(
+                        "Fulfilment cancellations can only reference lines owned by the request.",
+                        nameof(cancellations));
                 }
             }
         }
@@ -160,6 +193,27 @@ public sealed class FulfilmentRequest
                     "Prepared line quantity must match the quantities assigned to fulfilment units.",
                     nameof(units));
             }
+
+            var cancelledByAcceptedRequests =
+                materializedCancellations
+                    .Where(
+                        cancellation =>
+                            cancellation.Outcome ==
+                            FulfilmentCancellationOutcome.Accepted)
+                    .SelectMany(cancellation => cancellation.Lines)
+                    .Where(
+                        cancellationLine =>
+                            cancellationLine.OrderLineId ==
+                            line.OrderLineId)
+                    .Sum(cancellationLine => cancellationLine.Quantity);
+
+            if (cancelledByAcceptedRequests !=
+                line.CancelledQuantity)
+            {
+                throw new ArgumentException(
+                    "Cancelled line quantity must match accepted fulfilment cancellations.",
+                    nameof(cancellations));
+            }
         }
 
         var expectedStatus =
@@ -179,6 +233,7 @@ public sealed class FulfilmentRequest
             Array.AsReadOnly(
                 materializedLines),
             materializedUnits,
+            materializedCancellations,
             confirmedAtUtc,
             status);
     }
@@ -286,6 +341,141 @@ public sealed class FulfilmentRequest
         return true;
     }
 
+    public FulfilmentCancellationDecision ApplyCancellation(
+        Guid cancellationId,
+        IEnumerable<FulfilmentCancellationLine> lines,
+        DateTimeOffset requestedAtUtc)
+    {
+        if (cancellationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation ID cannot be empty.",
+                nameof(cancellationId));
+        }
+
+        if (requestedAtUtc == default)
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation request time is required.",
+                nameof(requestedAtUtc));
+        }
+
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var materialized =
+            lines.ToArray();
+
+        if (materialized.Length == 0)
+        {
+            throw new ArgumentException(
+                "A fulfilment cancellation requires at least one line.",
+                nameof(lines));
+        }
+
+        if (materialized
+            .GroupBy(line => line.OrderLineId)
+            .Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException(
+                "A fulfilment cancellation cannot contain the same order line more than once.",
+                nameof(lines));
+        }
+
+        var existing =
+            _cancellations.SingleOrDefault(
+                cancellation =>
+                    cancellation.CancellationId ==
+                    cancellationId);
+
+        if (existing is not null)
+        {
+            var replay =
+                new FulfilmentCancellation(
+                    cancellationId,
+                    materialized,
+                    requestedAtUtc,
+                    existing.Outcome,
+                    existing.RejectionReason);
+
+            if (!existing.MatchesRequest(
+                    replay))
+            {
+                throw new FulfilmentCancellationConflictException(
+                    cancellationId);
+            }
+
+            return new FulfilmentCancellationDecision(
+                Replayed: true,
+                existing.Outcome,
+                existing.RejectionReason);
+        }
+
+        foreach (var cancellationLine in materialized)
+        {
+            _ =
+                _lines.SingleOrDefault(
+                    line =>
+                        line.OrderLineId ==
+                        cancellationLine.OrderLineId) ??
+                throw new ArgumentException(
+                    $"Order line '{cancellationLine.OrderLineId}' does not belong to this fulfilment request.",
+                    nameof(lines));
+        }
+
+        var unavailable =
+            materialized.Any(
+                cancellationLine =>
+                {
+                    var requestLine =
+                        _lines.Single(
+                            line =>
+                                line.OrderLineId ==
+                                cancellationLine.OrderLineId);
+
+                    return cancellationLine.Quantity >
+                        requestLine.CancellableQuantity;
+                });
+
+        if (unavailable)
+        {
+            _cancellations.Add(
+                new FulfilmentCancellation(
+                    cancellationId,
+                    materialized,
+                    requestedAtUtc,
+                    FulfilmentCancellationOutcome.Rejected,
+                    FulfilmentCancellationRejectionReason.QuantityNoLongerCancellable));
+
+            return new FulfilmentCancellationDecision(
+                Replayed: false,
+                FulfilmentCancellationOutcome.Rejected,
+                FulfilmentCancellationRejectionReason.QuantityNoLongerCancellable);
+        }
+
+        foreach (var cancellationLine in materialized)
+        {
+            _lines.Single(
+                    line =>
+                        line.OrderLineId ==
+                        cancellationLine.OrderLineId)
+                .Cancel(
+                    cancellationLine.Quantity);
+        }
+
+        _cancellations.Add(
+            new FulfilmentCancellation(
+                cancellationId,
+                materialized,
+                requestedAtUtc,
+                FulfilmentCancellationOutcome.Accepted,
+                null));
+
+        return new FulfilmentCancellationDecision(
+            Replayed: false,
+            FulfilmentCancellationOutcome.Accepted,
+            null);
+    }
+
     private static FulfilmentRequestStatus CalculateStatus(
         IEnumerable<FulfilmentRequestLine> lines)
     {
@@ -319,7 +509,8 @@ public sealed class FulfilmentRequestLine
         string skuCode,
         string productName,
         int quantity,
-        int preparedQuantity = 0)
+        int preparedQuantity = 0,
+        int cancelledQuantity = 0)
     {
         if (orderLineId == Guid.Empty)
         {
@@ -352,11 +543,14 @@ public sealed class FulfilmentRequestLine
         }
 
         if (preparedQuantity < 0 ||
-            preparedQuantity > quantity)
+            cancelledQuantity < 0 ||
+            preparedQuantity +
+                cancelledQuantity >
+                quantity)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(preparedQuantity),
-                "Prepared quantity must be between zero and the requested quantity.");
+                "Prepared and cancelled quantities must fit within the ordered quantity.");
         }
 
         OrderLineId = orderLineId;
@@ -364,6 +558,7 @@ public sealed class FulfilmentRequestLine
         ProductName = productName.Trim();
         Quantity = quantity;
         PreparedQuantity = preparedQuantity;
+        CancelledQuantity = cancelledQuantity;
     }
 
     public Guid OrderLineId { get; }
@@ -376,9 +571,12 @@ public sealed class FulfilmentRequestLine
 
     public int PreparedQuantity { get; private set; }
 
+    public int CancelledQuantity { get; private set; }
+
     public int CancellableQuantity =>
         Quantity -
-        PreparedQuantity;
+        PreparedQuantity -
+        CancelledQuantity;
 
     internal void Prepare(
         int quantity)
@@ -398,6 +596,26 @@ public sealed class FulfilmentRequestLine
         }
 
         PreparedQuantity += quantity;
+    }
+
+    internal void Cancel(
+        int quantity)
+    {
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(quantity),
+                "Cancelled quantity must be positive.");
+        }
+
+        if (quantity >
+            CancellableQuantity)
+        {
+            throw new InvalidOperationException(
+                "Cancelled quantity exceeds the remaining cancellable quantity.");
+        }
+
+        CancelledQuantity += quantity;
     }
 }
 
@@ -494,6 +712,132 @@ public sealed record FulfilmentUnitLine
     public int Quantity { get; }
 }
 
+public sealed class FulfilmentCancellation
+{
+    private readonly IReadOnlyList<FulfilmentCancellationLine> _lines;
+
+    public FulfilmentCancellation(
+        Guid cancellationId,
+        IEnumerable<FulfilmentCancellationLine> lines,
+        DateTimeOffset requestedAtUtc,
+        FulfilmentCancellationOutcome outcome,
+        FulfilmentCancellationRejectionReason? rejectionReason)
+    {
+        if (cancellationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation ID cannot be empty.",
+                nameof(cancellationId));
+        }
+
+        if (requestedAtUtc == default)
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation request time is required.",
+                nameof(requestedAtUtc));
+        }
+
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var materialized =
+            lines.ToArray();
+
+        if (materialized.Length == 0)
+        {
+            throw new ArgumentException(
+                "A fulfilment cancellation requires at least one line.",
+                nameof(lines));
+        }
+
+        if (materialized
+            .GroupBy(line => line.OrderLineId)
+            .Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation line IDs must be unique.",
+                nameof(lines));
+        }
+
+        if (outcome == FulfilmentCancellationOutcome.Accepted &&
+            rejectionReason is not null ||
+            outcome == FulfilmentCancellationOutcome.Rejected &&
+            rejectionReason is null)
+        {
+            throw new ArgumentException(
+                "Fulfilment cancellation rejection reason must match the outcome.",
+                nameof(rejectionReason));
+        }
+
+        CancellationId = cancellationId;
+        _lines = Array.AsReadOnly(materialized);
+        RequestedAtUtc = requestedAtUtc.ToUniversalTime();
+        Outcome = outcome;
+        RejectionReason = rejectionReason;
+    }
+
+    public Guid CancellationId { get; }
+
+    public IReadOnlyList<FulfilmentCancellationLine> Lines => _lines;
+
+    public DateTimeOffset RequestedAtUtc { get; }
+
+    public FulfilmentCancellationOutcome Outcome { get; }
+
+    public FulfilmentCancellationRejectionReason? RejectionReason { get; }
+
+    internal bool MatchesRequest(
+        FulfilmentCancellation other) =>
+        RequestedAtUtc ==
+            other.RequestedAtUtc &&
+        Lines.SequenceEqual(
+            other.Lines);
+}
+
+public sealed record FulfilmentCancellationLine
+{
+    public FulfilmentCancellationLine(
+        Guid orderLineId,
+        int quantity)
+    {
+        if (orderLineId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Order line ID cannot be empty.",
+                nameof(orderLineId));
+        }
+
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(quantity),
+                "Fulfilment cancellation quantity must be positive.");
+        }
+
+        OrderLineId = orderLineId;
+        Quantity = quantity;
+    }
+
+    public Guid OrderLineId { get; }
+
+    public int Quantity { get; }
+}
+
+public sealed record FulfilmentCancellationDecision(
+    bool Replayed,
+    FulfilmentCancellationOutcome Outcome,
+    FulfilmentCancellationRejectionReason? RejectionReason);
+
+public enum FulfilmentCancellationOutcome
+{
+    Accepted = 0,
+    Rejected = 1
+}
+
+public enum FulfilmentCancellationRejectionReason
+{
+    QuantityNoLongerCancellable = 0
+}
+
 public enum FulfilmentRequestStatus
 {
     Pending = 0,
@@ -507,6 +851,16 @@ public sealed class FulfilmentUnitConflictException : Exception
         Guid unitId)
         : base(
             $"Fulfilment unit '{unitId}' already exists with different details.")
+    {
+    }
+}
+
+public sealed class FulfilmentCancellationConflictException : Exception
+{
+    public FulfilmentCancellationConflictException(
+        Guid cancellationId)
+        : base(
+            $"Fulfilment cancellation '{cancellationId}' already exists with different request details.")
     {
     }
 }

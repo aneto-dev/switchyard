@@ -22,6 +22,12 @@ public sealed class FulfilmentDbContext : DbContext
     internal DbSet<FulfilmentUnitLineRecord> UnitLines =>
         Set<FulfilmentUnitLineRecord>();
 
+    internal DbSet<FulfilmentCancellationRecord> Cancellations =>
+        Set<FulfilmentCancellationRecord>();
+
+    internal DbSet<FulfilmentCancellationLineRecord> CancellationLines =>
+        Set<FulfilmentCancellationLineRecord>();
+
     internal DbSet<FulfilmentInboxMessageRecord> InboxMessages =>
         Set<FulfilmentInboxMessageRecord>();
 
@@ -92,6 +98,9 @@ public sealed class FulfilmentDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_fulfilment_line_prepared_quantity",
                     "prepared_quantity >= 0 AND prepared_quantity <= quantity");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_line_cancelled_quantity",
+                    "cancelled_quantity >= 0 AND prepared_quantity + cancelled_quantity <= quantity");
             });
 
         line.HasKey(
@@ -126,6 +135,9 @@ public sealed class FulfilmentDbContext : DbContext
 
         line.Property(record => record.PreparedQuantity)
             .HasColumnName("prepared_quantity");
+
+        line.Property(record => record.CancelledQuantity)
+            .HasColumnName("cancelled_quantity");
 
         line.HasIndex(
                 record => new
@@ -216,6 +228,99 @@ public sealed class FulfilmentDbContext : DbContext
                     record.UnitId
                 })
             .OnDelete(DeleteBehavior.Cascade);
+
+        var cancellation =
+            modelBuilder.Entity<FulfilmentCancellationRecord>();
+
+        cancellation.ToTable(
+            "cancellations",
+            "fulfilment",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_fulfilment_cancellation_outcome",
+                    "outcome IN (0, 1)");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_cancellation_shape",
+                    "(outcome = 0 AND rejection_reason IS NULL) OR " +
+                    "(outcome = 1 AND rejection_reason = 0)");
+            });
+
+        cancellation.HasKey(
+                    record => new
+                    {
+                        record.OrderId,
+                        record.CancellationId
+                    })
+                .HasName(
+                    "pk_fulfilment_cancellations");
+
+        cancellation.Property(record => record.OrderId)
+                    .HasColumnName("order_id");
+
+        cancellation.Property(record => record.CancellationId)
+                    .HasColumnName("cancellation_id");
+
+        cancellation.Property(record => record.RequestedAtUtc)
+                    .HasColumnName("requested_at_utc");
+
+        cancellation.Property(record => record.Outcome)
+                    .HasColumnName("outcome")
+                    .HasConversion<int>();
+
+        cancellation.Property(record => record.RejectionReason)
+                    .HasColumnName("rejection_reason")
+                    .HasConversion<int?>();
+
+        request.HasMany(record => record.Cancellations)
+               .WithOne(record => record.Request)
+               .HasForeignKey(record => record.OrderId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        var cancellationLine =
+            modelBuilder.Entity<FulfilmentCancellationLineRecord>();
+
+        cancellationLine.ToTable(
+            "cancellation_lines",
+            "fulfilment",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_fulfilment_cancellation_line_quantity",
+                    "quantity > 0");
+            });
+
+        cancellationLine.HasKey(
+                            record => new
+                            {
+                                record.OrderId,
+                                record.CancellationId,
+                                record.OrderLineId
+                            })
+                        .HasName(
+                            "pk_fulfilment_cancellation_lines");
+
+        cancellationLine.Property(record => record.OrderId)
+                        .HasColumnName("order_id");
+
+        cancellationLine.Property(record => record.CancellationId)
+                        .HasColumnName("cancellation_id");
+
+        cancellationLine.Property(record => record.OrderLineId)
+                        .HasColumnName("order_line_id");
+
+        cancellationLine.Property(record => record.Quantity)
+                        .HasColumnName("quantity");
+
+        cancellation.HasMany(record => record.Lines)
+                    .WithOne(record => record.Cancellation)
+                    .HasForeignKey(
+                        record => new
+                        {
+                            record.OrderId,
+                            record.CancellationId
+                        })
+                    .OnDelete(DeleteBehavior.Cascade);
 
         var inbox =
             modelBuilder.Entity<FulfilmentInboxMessageRecord>();
