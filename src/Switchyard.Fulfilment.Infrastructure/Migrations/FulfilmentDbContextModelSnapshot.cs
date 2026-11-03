@@ -146,7 +146,7 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                             "btrim(order_number) <> ''");
                         t.HasCheckConstraint(
                             "ck_fulfilment_request_status",
-                            "status = 0");
+                            "status BETWEEN 0 AND 2");
                     });
             });
 
@@ -165,6 +165,10 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                 b.Property<int>("Position")
                     .HasColumnType("integer")
                     .HasColumnName("position");
+
+                b.Property<int>("PreparedQuantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("prepared_quantity");
 
                 b.Property<string>("ProductName")
                     .IsRequired()
@@ -204,6 +208,9 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                             "ck_fulfilment_line_position",
                             "position >= 0");
                         t.HasCheckConstraint(
+                            "ck_fulfilment_line_prepared_quantity",
+                            "prepared_quantity >= 0 AND prepared_quantity <= quantity");
+                        t.HasCheckConstraint(
                             "ck_fulfilment_line_product_name",
                             "btrim(product_name) <> ''");
                         t.HasCheckConstraint(
@@ -212,6 +219,71 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                         t.HasCheckConstraint(
                             "ck_fulfilment_line_sku",
                             "btrim(sku_code) <> ''");
+                    });
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("UnitId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("unit_id");
+
+                b.Property<DateTimeOffset>("CreatedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at_utc");
+
+                b.HasKey(
+                    "OrderId",
+                    "UnitId")
+                    .HasName(
+                        "pk_fulfilment_units");
+
+                b.ToTable(
+                    "units",
+                    "fulfilment");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitLineRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("UnitId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("unit_id");
+
+                b.Property<Guid>("OrderLineId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_line_id");
+
+                b.Property<int>("Quantity")
+                    .HasColumnType("integer")
+                    .HasColumnName("quantity");
+
+                b.HasKey(
+                    "OrderId",
+                    "UnitId",
+                    "OrderLineId")
+                    .HasName(
+                        "pk_fulfilment_unit_lines");
+
+                b.ToTable(
+                    "unit_lines",
+                    "fulfilment",
+                    t =>
+                    {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_unit_line_quantity",
+                            "quantity > 0");
                     });
             });
 
@@ -231,7 +303,47 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
+                        "Request")
+                    .WithMany("Units")
+                    .HasForeignKey("OrderId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Request");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitLineRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
+                        "Unit")
+                    .WithMany("Lines")
+                    .HasForeignKey(
+                        "OrderId",
+                        "UnitId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Unit");
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
+            b =>
+            {
+                b.Navigation("Lines");
+                b.Navigation("Units");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
             b =>
             {
                 b.Navigation("Lines");
