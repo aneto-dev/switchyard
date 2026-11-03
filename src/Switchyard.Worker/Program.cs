@@ -221,6 +221,11 @@ builder.Services.AddSingleton<IPaymentAuthorisationReconciliationProvider>(
         provider.GetRequiredService<
             SimulatedPaymentAuthorisationProvider>());
 
+builder.Services.AddSingleton<IPaymentSettlementProvider>(
+    provider =>
+        provider.GetRequiredService<
+            SimulatedPaymentAuthorisationProvider>());
+
 builder.Services.AddSingleton(
     _ => ServiceBusClientFactory.Create(
         serviceBusOptions));

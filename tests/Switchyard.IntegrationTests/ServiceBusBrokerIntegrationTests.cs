@@ -601,6 +601,7 @@ public sealed class ServiceBusBrokerIntegrationTests
             new PaymentsInboundMessageConsumer(
                 dbContextFactory,
                 provider,
+                provider,
                 timeProvider);
 
         var processor =
