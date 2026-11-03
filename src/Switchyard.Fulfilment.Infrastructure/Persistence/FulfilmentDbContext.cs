@@ -16,6 +16,12 @@ public sealed class FulfilmentDbContext : DbContext
     internal DbSet<FulfilmentRequestLineRecord> RequestLines =>
         Set<FulfilmentRequestLineRecord>();
 
+    internal DbSet<FulfilmentUnitRecord> Units =>
+        Set<FulfilmentUnitRecord>();
+
+    internal DbSet<FulfilmentUnitLineRecord> UnitLines =>
+        Set<FulfilmentUnitLineRecord>();
+
     internal DbSet<FulfilmentInboxMessageRecord> InboxMessages =>
         Set<FulfilmentInboxMessageRecord>();
 
@@ -37,7 +43,7 @@ public sealed class FulfilmentDbContext : DbContext
                     "btrim(order_number) <> ''");
                 table.HasCheckConstraint(
                     "ck_fulfilment_request_status",
-                    "status = 0");
+                    "status BETWEEN 0 AND 2");
             });
 
         request.HasKey(record => record.OrderId)
@@ -83,6 +89,9 @@ public sealed class FulfilmentDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_fulfilment_line_position",
                     "position >= 0");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_line_prepared_quantity",
+                    "prepared_quantity >= 0 AND prepared_quantity <= quantity");
             });
 
         line.HasKey(
@@ -115,6 +124,9 @@ public sealed class FulfilmentDbContext : DbContext
         line.Property(record => record.Quantity)
             .HasColumnName("quantity");
 
+        line.Property(record => record.PreparedQuantity)
+            .HasColumnName("prepared_quantity");
+
         line.HasIndex(
                 record => new
                 {
@@ -129,6 +141,81 @@ public sealed class FulfilmentDbContext : DbContext
                .WithOne(record => record.Request)
                .HasForeignKey(record => record.OrderId)
                .OnDelete(DeleteBehavior.Cascade);
+
+        var unit =
+            modelBuilder.Entity<FulfilmentUnitRecord>();
+
+        unit.ToTable(
+            "units",
+            "fulfilment");
+
+        unit.HasKey(
+                record => new
+                {
+                    record.OrderId,
+                    record.UnitId
+                })
+            .HasName(
+                "pk_fulfilment_units");
+
+        unit.Property(record => record.OrderId)
+            .HasColumnName("order_id");
+
+        unit.Property(record => record.UnitId)
+            .HasColumnName("unit_id");
+
+        unit.Property(record => record.CreatedAtUtc)
+            .HasColumnName("created_at_utc");
+
+        request.HasMany(record => record.Units)
+               .WithOne(record => record.Request)
+               .HasForeignKey(record => record.OrderId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        var unitLine =
+            modelBuilder.Entity<FulfilmentUnitLineRecord>();
+
+        unitLine.ToTable(
+            "unit_lines",
+            "fulfilment",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_fulfilment_unit_line_quantity",
+                    "quantity > 0");
+            });
+
+        unitLine.HasKey(
+                    record => new
+                    {
+                        record.OrderId,
+                        record.UnitId,
+                        record.OrderLineId
+                    })
+                .HasName(
+                    "pk_fulfilment_unit_lines");
+
+        unitLine.Property(record => record.OrderId)
+                .HasColumnName("order_id");
+
+        unitLine.Property(record => record.UnitId)
+                .HasColumnName("unit_id");
+
+        unitLine.Property(record => record.OrderLineId)
+                .HasColumnName("order_line_id");
+
+        unitLine.Property(record => record.Quantity)
+                .HasColumnName("quantity");
+
+        unit.HasMany(record => record.Lines)
+            .WithOne(record => record.Unit)
+            .HasForeignKey(
+                record => new
+                {
+                    record.OrderId,
+                    record.UnitId
+                })
+            .OnDelete(DeleteBehavior.Cascade);
 
         var inbox =
             modelBuilder.Entity<FulfilmentInboxMessageRecord>();

@@ -9,6 +9,7 @@ internal sealed class FulfilmentRequestRecord
     public FulfilmentRequestStatus Status { get; set; }
     public DateTimeOffset ConfirmedAtUtc { get; set; }
     public List<FulfilmentRequestLineRecord> Lines { get; } = [];
+    public List<FulfilmentUnitRecord> Units { get; } = [];
 }
 
 internal sealed class FulfilmentRequestLineRecord
@@ -19,7 +20,26 @@ internal sealed class FulfilmentRequestLineRecord
     public string SkuCode { get; set; } = string.Empty;
     public string ProductName { get; set; } = string.Empty;
     public int Quantity { get; set; }
+    public int PreparedQuantity { get; set; }
     public FulfilmentRequestRecord Request { get; set; } = null!;
+}
+
+internal sealed class FulfilmentUnitRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid UnitId { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public FulfilmentRequestRecord Request { get; set; } = null!;
+    public List<FulfilmentUnitLineRecord> Lines { get; } = [];
+}
+
+internal sealed class FulfilmentUnitLineRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid UnitId { get; set; }
+    public Guid OrderLineId { get; set; }
+    public int Quantity { get; set; }
+    public FulfilmentUnitRecord Unit { get; set; } = null!;
 }
 
 internal sealed class FulfilmentInboxMessageRecord
