@@ -9,9 +9,12 @@ internal sealed class FulfilmentRequestRecord
     public string OrderNumber { get; set; } = string.Empty;
     public FulfilmentRequestStatus Status { get; set; }
     public DateTimeOffset ConfirmedAtUtc { get; set; }
+    public Guid? PaymentCaptureRequestId { get; set; }
+    public DateTimeOffset? PaymentCaptureRequestedAtUtc { get; set; }
     public List<FulfilmentRequestLineRecord> Lines { get; } = [];
     public List<FulfilmentUnitRecord> Units { get; } = [];
     public List<FulfilmentCancellationRecord> Cancellations { get; } = [];
+    public List<FulfilmentShipmentRecord> Shipments { get; } = [];
 }
 
 internal sealed class FulfilmentRequestLineRecord
@@ -76,4 +79,22 @@ internal sealed class FulfilmentInboxMessageRecord
     public Guid? CausationId { get; set; }
     public DateTimeOffset ReceivedAtUtc { get; set; }
     public DateTimeOffset ProcessedAtUtc { get; set; }
+}
+
+internal sealed class FulfilmentShipmentRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid ShipmentId { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset? DispatchedAtUtc { get; set; }
+    public FulfilmentRequestRecord Request { get; set; } = null!;
+    public List<FulfilmentShipmentUnitRecord> Units { get; } = [];
+}
+
+internal sealed class FulfilmentShipmentUnitRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid ShipmentId { get; set; }
+    public Guid UnitId { get; set; }
+    public FulfilmentShipmentRecord Shipment { get; set; } = null!;
 }

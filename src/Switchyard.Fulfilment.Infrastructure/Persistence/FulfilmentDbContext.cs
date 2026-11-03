@@ -28,6 +28,12 @@ public sealed class FulfilmentDbContext : DbContext
     internal DbSet<FulfilmentCancellationLineRecord> CancellationLines =>
         Set<FulfilmentCancellationLineRecord>();
 
+    internal DbSet<FulfilmentShipmentRecord> Shipments =>
+        Set<FulfilmentShipmentRecord>();
+
+    internal DbSet<FulfilmentShipmentUnitRecord> ShipmentUnits =>
+        Set<FulfilmentShipmentUnitRecord>();
+
     internal DbSet<FulfilmentInboxMessageRecord> InboxMessages =>
         Set<FulfilmentInboxMessageRecord>();
 
@@ -73,6 +79,12 @@ public sealed class FulfilmentDbContext : DbContext
         request.Property(record => record.ConfirmedAtUtc)
                .HasColumnName("confirmed_at_utc")
                .IsRequired();
+
+        request.Property(record => record.PaymentCaptureRequestId)
+               .HasColumnName("payment_capture_request_id");
+
+        request.Property(record => record.PaymentCaptureRequestedAtUtc)
+               .HasColumnName("payment_capture_requested_at_utc");
 
         request.HasIndex(record => record.OrderNumber)
                .IsUnique()
@@ -324,6 +336,84 @@ public sealed class FulfilmentDbContext : DbContext
                             record.CancellationId
                         })
                     .OnDelete(DeleteBehavior.Cascade);
+
+        var shipment =
+            modelBuilder.Entity<FulfilmentShipmentRecord>();
+
+        shipment.ToTable(
+            "shipments",
+            "fulfilment",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_fulfilment_shipment_dispatch_time",
+                    "dispatched_at_utc IS NULL OR dispatched_at_utc >= created_at_utc");
+            });
+
+        shipment.HasKey(
+                    record => new { record.OrderId, record.ShipmentId })
+                .HasName("pk_fulfilment_shipments");
+
+        shipment.Property(record => record.OrderId)
+                .HasColumnName("order_id");
+
+        shipment.Property(record => record.ShipmentId)
+                .HasColumnName("shipment_id");
+
+        shipment.Property(record => record.CreatedAtUtc)
+                .HasColumnName("created_at_utc");
+
+        shipment.Property(record => record.DispatchedAtUtc)
+                .HasColumnName("dispatched_at_utc");
+
+        request.HasMany(record => record.Shipments)
+               .WithOne(record => record.Request)
+               .HasForeignKey(record => record.OrderId)
+               .OnDelete(DeleteBehavior.Cascade);
+
+        var shipmentUnit =
+            modelBuilder.Entity<FulfilmentShipmentUnitRecord>();
+
+        shipmentUnit.ToTable(
+            "shipment_units",
+            "fulfilment");
+
+        shipmentUnit.HasKey(
+                        record => new
+                        {
+                            record.OrderId,
+                            record.ShipmentId,
+                            record.UnitId
+                        })
+                    .HasName("pk_fulfilment_shipment_units");
+
+        shipmentUnit.Property(record => record.OrderId)
+                    .HasColumnName("order_id");
+
+        shipmentUnit.Property(record => record.ShipmentId)
+                    .HasColumnName("shipment_id");
+
+        shipmentUnit.Property(record => record.UnitId)
+                    .HasColumnName("unit_id");
+
+        shipmentUnit.HasIndex(
+                        record => new
+                        {
+                            record.OrderId,
+                            record.UnitId
+                        })
+                    .IsUnique()
+                    .HasDatabaseName("ux_fulfilment_shipment_unit");
+
+        shipment.HasMany(record => record.Units)
+                .WithOne(record => record.Shipment)
+                .HasForeignKey(
+                    record => new
+                    {
+                        record.OrderId,
+                        record.ShipmentId
+                    })
+                .OnDelete(DeleteBehavior.Cascade);
 
         var inbox =
             modelBuilder.Entity<FulfilmentInboxMessageRecord>();
