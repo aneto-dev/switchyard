@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\Switchyard.Fulfilment.Domain\Switchyard.Fulfilment.Domain.csproj" />
+    <ProjectReference Include="..\Switchyard.IntegrationContracts\Switchyard.IntegrationContracts.csproj" />
+    <ProjectReference Include="..\Switchyard.Messaging\Switchyard.Messaging.csproj" />
   </ItemGroup>
 </Project>

@@ -59,6 +59,7 @@ public sealed class FulfilmentInboundMessageConsumerTests
         var confirmed =
             new OrderConfirmedV1(
                 orderId,
+                Guid.NewGuid(),
                 "SW-000001",
                 1499.97m,
                 "GBP",
@@ -188,6 +189,7 @@ public sealed class FulfilmentInboundMessageConsumerTests
                 JsonSerializer.Serialize(
                     new OrderConfirmedV1(
                         orderId,
+                        Guid.NewGuid(),
                         "SW-000002",
                         1299.99m,
                         "GBP",
@@ -218,6 +220,7 @@ public sealed class FulfilmentInboundMessageConsumerTests
             JsonSerializer.Serialize(
                 new OrderConfirmedV1(
                     orderId,
+                    Guid.NewGuid(),
                     "SW-000002",
                     1299.99m,
                     "GBP",

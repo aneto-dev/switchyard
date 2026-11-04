@@ -105,6 +105,103 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentOutboxMessageRecord",
+            b =>
+            {
+                b.Property<Guid>("MessageId")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uuid")
+                    .HasColumnName("message_id");
+
+                b.Property<DateTimeOffset>("AvailableAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("available_at_utc");
+
+                b.Property<Guid?>("CausationId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("causation_id");
+
+                b.Property<Guid>("CorrelationId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("correlation_id");
+
+                b.Property<int>("DeliveryAttemptCount")
+                    .HasColumnType("integer")
+                    .HasColumnName("delivery_attempt_count");
+
+                b.Property<DateTimeOffset?>("LastAttemptAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("last_attempt_at_utc");
+
+                b.Property<string>("LastError")
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("last_error");
+
+                b.Property<Guid?>("LockToken")
+                    .HasColumnType("uuid")
+                    .HasColumnName("lock_token");
+
+                b.Property<DateTimeOffset?>("LockedUntilUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("locked_until_utc");
+
+                b.Property<string>("MessageType")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("character varying(200)")
+                    .HasColumnName("message_type");
+
+                b.Property<DateTimeOffset>("OccurredAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("occurred_at_utc");
+
+                b.Property<string>("PayloadJson")
+                    .IsRequired()
+                    .HasColumnType("jsonb")
+                    .HasColumnName("payload");
+
+                b.Property<DateTimeOffset?>("PublishedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("published_at_utc");
+
+                b.HasKey("MessageId")
+                    .HasName(
+                        "pk_fulfilment_outbox_messages");
+
+                b.HasIndex(
+                    "AvailableAtUtc",
+                    "LockedUntilUtc",
+                    "OccurredAtUtc")
+                    .HasDatabaseName(
+                        "ix_fulfilment_outbox_due")
+                    .HasFilter(
+                        "published_at_utc IS NULL");
+
+                b.ToTable(
+                    "outbox_messages",
+                    "fulfilment",
+                    t =>
+                    {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_outbox_attempt_shape",
+                            "(delivery_attempt_count = 0 AND last_attempt_at_utc IS NULL) OR (delivery_attempt_count > 0 AND last_attempt_at_utc IS NOT NULL)");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_outbox_delivery_attempt_count",
+                            "delivery_attempt_count >= 0");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_outbox_lock_shape",
+                            "(lock_token IS NULL AND locked_until_utc IS NULL) OR (lock_token IS NOT NULL AND locked_until_utc IS NOT NULL)");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_outbox_message_type",
+                            "btrim(message_type) <> ''");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_outbox_published_time",
+                            "published_at_utc IS NULL OR published_at_utc >= occurred_at_utc");
+                    });
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
             b =>
             {
@@ -122,6 +219,18 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     .HasMaxLength(50)
                     .HasColumnType("character varying(50)")
                     .HasColumnName("order_number");
+
+                b.Property<Guid>("PaymentId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("payment_id");
+
+                b.Property<Guid?>("PaymentCaptureRequestId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("payment_capture_request_id");
+
+                b.Property<DateTimeOffset?>("PaymentCaptureRequestedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("payment_capture_requested_at_utc");
 
                 b.Property<int>("Status")
                     .HasColumnType("integer")
@@ -312,6 +421,78 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("ShipmentId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("shipment_id");
+
+                b.Property<DateTimeOffset>("CreatedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("created_at_utc");
+
+                b.Property<DateTimeOffset?>("DispatchedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("dispatched_at_utc");
+
+                b.HasKey(
+                    "OrderId",
+                    "ShipmentId")
+                    .HasName(
+                        "pk_fulfilment_shipments");
+
+                b.ToTable(
+                    "shipments",
+                    "fulfilment",
+                    t =>
+                    {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_shipment_dispatch_time",
+                            "dispatched_at_utc IS NULL OR dispatched_at_utc >= created_at_utc");
+                    });
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentUnitRecord",
+            b =>
+            {
+                b.Property<Guid>("OrderId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("order_id");
+
+                b.Property<Guid>("ShipmentId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("shipment_id");
+
+                b.Property<Guid>("UnitId")
+                    .HasColumnType("uuid")
+                    .HasColumnName("unit_id");
+
+                b.HasKey(
+                    "OrderId",
+                    "ShipmentId",
+                    "UnitId")
+                    .HasName(
+                        "pk_fulfilment_shipment_units");
+
+                b.HasIndex(
+                    "OrderId",
+                    "UnitId")
+                    .IsUnique()
+                    .HasDatabaseName(
+                        "ux_fulfilment_shipment_unit");
+
+                b.ToTable(
+                    "shipment_units",
+                    "fulfilment");
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
             b =>
             {
@@ -424,6 +605,38 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentRequestRecord",
+                        "Request")
+                    .WithMany("Shipments")
+                    .HasForeignKey("OrderId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Request");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentUnitRecord",
+            b =>
+            {
+                b.HasOne(
+                        "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentRecord",
+                        "Shipment")
+                    .WithMany("Units")
+                    .HasForeignKey(
+                        "OrderId",
+                        "ShipmentId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Shipment");
+            });
+
+        modelBuilder.Entity(
             "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentUnitRecord",
             b =>
             {
@@ -468,6 +681,14 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
             {
                 b.Navigation("Cancellations");
                 b.Navigation("Lines");
+                b.Navigation("Shipments");
+                b.Navigation("Units");
+            });
+
+        modelBuilder.Entity(
+            "Switchyard.Fulfilment.Infrastructure.Persistence.FulfilmentShipmentRecord",
+            b =>
+            {
                 b.Navigation("Units");
             });
 

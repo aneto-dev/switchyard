@@ -6,6 +6,7 @@ using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Payments.Application.Authorisation;
 using Switchyard.Payments.Application.Ports;
+using Switchyard.Payments.Application.Settlement;
 using Switchyard.Payments.Domain.Authorisation;
 using Switchyard.Payments.Domain.Payments;
 using Switchyard.Payments.Infrastructure.Persistence;
@@ -175,6 +176,7 @@ public sealed class PaymentAuthorisationInvocationSafetyTests
         var consumer = new PaymentsInboundMessageConsumer(
             new TestPaymentsDbContextFactory(connectionString),
             provider,
+            new NoOpSettlementProvider(),
             timeProvider);
 
         var firstTask = consumer.ConsumeAsync(
@@ -493,6 +495,21 @@ public sealed class PaymentAuthorisationInvocationSafetyTests
             }
 
             _release.TrySetResult(true);
+        }
+    }
+
+    private sealed class NoOpSettlementProvider :
+        IPaymentSettlementProvider
+    {
+        public Task<PaymentProviderSettlementResult> ExecuteAsync(
+            PaymentProviderSettlementRequest request,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            return Task.FromResult(
+                new PaymentProviderSettlementResult(
+                    $"unused-{request.PaymentId:N}"));
         }
     }
 

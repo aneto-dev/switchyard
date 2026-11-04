@@ -5,26 +5,37 @@ public sealed class FulfilmentRequest
     private readonly IReadOnlyList<FulfilmentRequestLine> _lines;
     private readonly List<FulfilmentUnit> _units;
     private readonly List<FulfilmentCancellation> _cancellations;
+    private readonly List<FulfilmentShipment> _shipments;
 
     private FulfilmentRequest(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IReadOnlyList<FulfilmentRequestLine> lines,
         IEnumerable<FulfilmentUnit> units,
         IEnumerable<FulfilmentCancellation> cancellations,
+        IEnumerable<FulfilmentShipment> shipments,
         DateTimeOffset confirmedAtUtc,
-        FulfilmentRequestStatus status)
+        FulfilmentRequestStatus status,
+        Guid? paymentCaptureRequestId,
+        DateTimeOffset? paymentCaptureRequestedAtUtc)
     {
         OrderId = orderId;
+        PaymentId = paymentId;
         OrderNumber = orderNumber;
         _lines = lines;
         _units = units.ToList();
         _cancellations = cancellations.ToList();
+        _shipments = shipments.ToList();
         ConfirmedAtUtc = confirmedAtUtc.ToUniversalTime();
         Status = status;
+        PaymentCaptureRequestId = paymentCaptureRequestId;
+        PaymentCaptureRequestedAtUtc = paymentCaptureRequestedAtUtc?.ToUniversalTime();
     }
 
     public Guid OrderId { get; }
+
+    public Guid PaymentId { get; }
 
     public string OrderNumber { get; }
 
@@ -34,38 +45,60 @@ public sealed class FulfilmentRequest
 
     public IReadOnlyList<FulfilmentCancellation> Cancellations => _cancellations;
 
+    public IReadOnlyList<FulfilmentShipment> Shipments => _shipments;
+
     public DateTimeOffset ConfirmedAtUtc { get; }
 
     public FulfilmentRequestStatus Status { get; private set; }
 
+    public Guid? PaymentCaptureRequestId { get; private set; }
+
+    public DateTimeOffset? PaymentCaptureRequestedAtUtc { get; private set; }
+
     public static FulfilmentRequest Create(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IEnumerable<FulfilmentRequestLine> lines,
         DateTimeOffset confirmedAtUtc) =>
         Rehydrate(
             orderId,
+            paymentId,
             orderNumber,
             lines,
             confirmedAtUtc,
             FulfilmentRequestStatus.Pending,
             [],
-            []);
+            [],
+            [],
+            null,
+            null);
 
     public static FulfilmentRequest Rehydrate(
         Guid orderId,
+        Guid paymentId,
         string orderNumber,
         IEnumerable<FulfilmentRequestLine> lines,
         DateTimeOffset confirmedAtUtc,
         FulfilmentRequestStatus status,
         IEnumerable<FulfilmentUnit>? units = null,
-        IEnumerable<FulfilmentCancellation>? cancellations = null)
+        IEnumerable<FulfilmentCancellation>? cancellations = null,
+        IEnumerable<FulfilmentShipment>? shipments = null,
+        Guid? paymentCaptureRequestId = null,
+        DateTimeOffset? paymentCaptureRequestedAtUtc = null)
     {
         if (orderId == Guid.Empty)
         {
             throw new ArgumentException(
                 "Fulfilment order ID cannot be empty.",
                 nameof(orderId));
+        }
+
+        if (paymentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Fulfilment payment ID cannot be empty.",
+                nameof(paymentId));
         }
 
         if (string.IsNullOrWhiteSpace(orderNumber) ||
@@ -134,6 +167,9 @@ public sealed class FulfilmentRequest
         var materializedCancellations =
             (cancellations ?? []).ToArray();
 
+        var materializedShipments =
+            (shipments ?? []).ToArray();
+
         if (materializedCancellations
             .GroupBy(cancellation => cancellation.CancellationId)
             .Any(group => group.Count() > 1))
@@ -141,6 +177,32 @@ public sealed class FulfilmentRequest
             throw new ArgumentException(
                 "Fulfilment cancellation IDs must be unique.",
                 nameof(cancellations));
+        }
+
+        if (materializedShipments
+            .GroupBy(shipment => shipment.ShipmentId)
+            .Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException(
+                "Fulfilment shipment IDs must be unique.",
+                nameof(shipments));
+        }
+
+        if (materializedShipments
+            .SelectMany(shipment => shipment.UnitIds)
+            .GroupBy(unitId => unitId)
+            .Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException(
+                "A fulfilment unit can belong to only one shipment.",
+                nameof(shipments));
+        }
+
+        if (paymentCaptureRequestId.HasValue != paymentCaptureRequestedAtUtc.HasValue)
+        {
+            throw new ArgumentException(
+                "Payment capture request ID and request time must be recorded together.",
+                nameof(paymentCaptureRequestId));
         }
 
         var lineMap =
@@ -172,6 +234,21 @@ public sealed class FulfilmentRequest
                         "Fulfilment cancellations can only reference lines owned by the request.",
                         nameof(cancellations));
                 }
+            }
+        }
+
+        var ownedUnitIds =
+            materializedUnits
+                .Select(unit => unit.UnitId)
+                .ToHashSet();
+
+        foreach (var shipment in materializedShipments)
+        {
+            if (shipment.UnitIds.Any(unitId => !ownedUnitIds.Contains(unitId)))
+            {
+                throw new ArgumentException(
+                    "Fulfilment shipments can only reference owned fulfilment units.",
+                    nameof(shipments));
             }
         }
 
@@ -229,13 +306,17 @@ public sealed class FulfilmentRequest
 
         return new FulfilmentRequest(
             orderId,
+            paymentId,
             orderNumber.Trim(),
             Array.AsReadOnly(
                 materializedLines),
             materializedUnits,
             materializedCancellations,
+            materializedShipments,
             confirmedAtUtc,
-            status);
+            status,
+            paymentCaptureRequestId,
+            paymentCaptureRequestedAtUtc);
     }
 
     public bool CreateUnit(
@@ -474,6 +555,110 @@ public sealed class FulfilmentRequest
             Replayed: false,
             FulfilmentCancellationOutcome.Accepted,
             null);
+    }
+
+    public bool CreateShipment(
+        Guid shipmentId,
+        IEnumerable<Guid> unitIds,
+        DateTimeOffset createdAtUtc)
+    {
+        if (shipmentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Shipment ID cannot be empty.",
+                nameof(shipmentId));
+        }
+
+        ArgumentNullException.ThrowIfNull(unitIds);
+
+        var materialized =
+            unitIds.Distinct().ToArray();
+
+        var requested =
+            new FulfilmentShipment(
+                shipmentId,
+                materialized,
+                createdAtUtc,
+                null);
+
+        var existing =
+            _shipments.SingleOrDefault(
+                shipment => shipment.ShipmentId == shipmentId);
+
+        if (existing is not null)
+        {
+            if (existing.Matches(requested))
+            {
+                return false;
+            }
+
+            throw new FulfilmentShipmentConflictException(shipmentId);
+        }
+
+        foreach (var unitId in materialized)
+        {
+            if (_units.All(unit => unit.UnitId != unitId))
+            {
+                throw new ArgumentException(
+                    $"Fulfilment unit '{unitId}' does not belong to this request.",
+                    nameof(unitIds));
+            }
+
+            if (_shipments.Any(shipment => shipment.UnitIds.Contains(unitId)))
+            {
+                throw new InvalidOperationException(
+                    $"Fulfilment unit '{unitId}' is already assigned to a shipment.");
+            }
+        }
+
+        _shipments.Add(requested);
+
+        return true;
+    }
+
+    public FulfilmentDispatchDecision DispatchShipment(
+        Guid shipmentId,
+        Guid captureRequestId,
+        DateTimeOffset dispatchedAtUtc)
+    {
+        if (captureRequestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment capture request ID cannot be empty.",
+                nameof(captureRequestId));
+        }
+
+        var shipment =
+            _shipments.SingleOrDefault(
+                candidate => candidate.ShipmentId == shipmentId) ??
+            throw new InvalidOperationException(
+                $"Fulfilment shipment '{shipmentId}' does not exist.");
+
+        if (shipment.DispatchedAtUtc is not null)
+        {
+            return new FulfilmentDispatchDecision(
+                Replayed: true,
+                CaptureRequired: false,
+                PaymentCaptureRequestId);
+        }
+
+        shipment.Dispatch(dispatchedAtUtc);
+
+        if (PaymentCaptureRequestId is not null)
+        {
+            return new FulfilmentDispatchDecision(
+                Replayed: false,
+                CaptureRequired: false,
+                PaymentCaptureRequestId);
+        }
+
+        PaymentCaptureRequestId = captureRequestId;
+        PaymentCaptureRequestedAtUtc = dispatchedAtUtc.ToUniversalTime();
+
+        return new FulfilmentDispatchDecision(
+            Replayed: false,
+            CaptureRequired: true,
+            captureRequestId);
     }
 
     private static FulfilmentRequestStatus CalculateStatus(
@@ -838,6 +1023,87 @@ public enum FulfilmentCancellationRejectionReason
     QuantityNoLongerCancellable = 0
 }
 
+public sealed class FulfilmentShipment
+{
+    private readonly IReadOnlyList<Guid> _unitIds;
+
+    public FulfilmentShipment(
+        Guid shipmentId,
+        IEnumerable<Guid> unitIds,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? dispatchedAtUtc)
+    {
+        if (shipmentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Shipment ID cannot be empty.",
+                nameof(shipmentId));
+        }
+
+        ArgumentNullException.ThrowIfNull(unitIds);
+
+        var materialized = unitIds.Distinct().ToArray();
+
+        if (materialized.Length == 0 ||
+            materialized.Any(unitId => unitId == Guid.Empty))
+        {
+            throw new ArgumentException(
+                "Shipment fulfilment unit IDs are required.",
+                nameof(unitIds));
+        }
+
+        if (createdAtUtc == default)
+        {
+            throw new ArgumentException(
+                "Shipment creation time is required.",
+                nameof(createdAtUtc));
+        }
+
+        if (dispatchedAtUtc < createdAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(dispatchedAtUtc),
+                "Shipment cannot be dispatched before it is created.");
+        }
+
+        ShipmentId = shipmentId;
+        _unitIds = Array.AsReadOnly(materialized);
+        CreatedAtUtc = createdAtUtc.ToUniversalTime();
+        DispatchedAtUtc = dispatchedAtUtc?.ToUniversalTime();
+    }
+
+    public Guid ShipmentId { get; }
+
+    public IReadOnlyList<Guid> UnitIds => _unitIds;
+
+    public DateTimeOffset CreatedAtUtc { get; }
+
+    public DateTimeOffset? DispatchedAtUtc { get; private set; }
+
+    internal void Dispatch(DateTimeOffset dispatchedAtUtc)
+    {
+        if (dispatchedAtUtc == default ||
+            dispatchedAtUtc < CreatedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(dispatchedAtUtc),
+                "Shipment dispatch time must be on or after creation.");
+        }
+
+        DispatchedAtUtc = dispatchedAtUtc.ToUniversalTime();
+    }
+
+    internal bool Matches(FulfilmentShipment other) =>
+        CreatedAtUtc == other.CreatedAtUtc &&
+        DispatchedAtUtc == other.DispatchedAtUtc &&
+        UnitIds.SequenceEqual(other.UnitIds);
+}
+
+public sealed record FulfilmentDispatchDecision(
+    bool Replayed,
+    bool CaptureRequired,
+    Guid? PaymentCaptureRequestId);
+
 public enum FulfilmentRequestStatus
 {
     Pending = 0,
@@ -861,6 +1127,14 @@ public sealed class FulfilmentCancellationConflictException : Exception
         Guid cancellationId)
         : base(
             $"Fulfilment cancellation '{cancellationId}' already exists with different request details.")
+    {
+    }
+}
+
+public sealed class FulfilmentShipmentConflictException : Exception
+{
+    public FulfilmentShipmentConflictException(Guid shipmentId)
+        : base($"Fulfilment shipment '{shipmentId}' already exists with different details.")
     {
     }
 }

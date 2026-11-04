@@ -4,7 +4,9 @@ using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Payments.Application.Authorisation;
 using Switchyard.Payments.Application.Ports;
+using Switchyard.Payments.Application.Settlement;
 using Switchyard.Payments.Domain.Authorisation;
+using Switchyard.Payments.Domain.Settlement;
 using Switchyard.Payments.Domain.Payments;
 using Switchyard.Payments.Infrastructure.Persistence;
 
@@ -20,11 +22,13 @@ public sealed class PaymentsInboundMessageConsumer :
 
     private readonly IDbContextFactory<PaymentsDbContext> _dbContextFactory;
     private readonly IPaymentAuthorisationProvider _provider;
+    private readonly IPaymentSettlementProvider _settlementProvider;
     private readonly TimeProvider _timeProvider;
 
     public PaymentsInboundMessageConsumer(
         IDbContextFactory<PaymentsDbContext> dbContextFactory,
         IPaymentAuthorisationProvider provider,
+        IPaymentSettlementProvider settlementProvider,
         TimeProvider timeProvider)
     {
         _dbContextFactory =
@@ -34,6 +38,10 @@ public sealed class PaymentsInboundMessageConsumer :
         _provider =
             provider ??
             throw new ArgumentNullException(nameof(provider));
+
+        _settlementProvider =
+            settlementProvider ??
+            throw new ArgumentNullException(nameof(settlementProvider));
 
         _timeProvider =
             timeProvider ??
@@ -45,6 +53,17 @@ public sealed class PaymentsInboundMessageConsumer :
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
+
+        if (string.Equals(
+                message.MessageType,
+                CapturePaymentV1.MessageType,
+                StringComparison.Ordinal))
+        {
+            await ConsumeCaptureAsync(
+                message,
+                cancellationToken);
+            return;
+        }
 
         if (!string.Equals(
                 message.MessageType,
@@ -76,6 +95,7 @@ public sealed class PaymentsInboundMessageConsumer :
 
         var claim =
             await ClaimWhenAvailableAsync(
+                ConsumerName,
                 message,
                 cancellationToken);
 
@@ -121,7 +141,118 @@ public sealed class PaymentsInboundMessageConsumer :
             cancellationToken);
     }
 
+    private async Task ConsumeCaptureAsync(
+        IntegrationMessageEnvelope message,
+        CancellationToken cancellationToken)
+    {
+        CapturePaymentV1 command;
+
+        try
+        {
+            command =
+                JsonSerializer.Deserialize<CapturePaymentV1>(
+                    message.PayloadJson,
+                    JsonSerializerOptions.Web) ??
+                throw new JsonException(
+                    "Capture payment payload is empty.");
+        }
+        catch (JsonException exception)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                $"Capture payment payload is invalid: {exception.Message}");
+        }
+
+        if (command.RequestId == Guid.Empty ||
+            command.OrderId == Guid.Empty ||
+            command.PaymentId == Guid.Empty ||
+            message.CorrelationId != command.OrderId)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                "Capture payment command contains invalid identifiers or correlation.");
+        }
+
+        var claim =
+            await ClaimWhenAvailableAsync(
+                "payments-capture",
+                message,
+                cancellationToken);
+
+        if (claim.Status ==
+            PaymentsInboxClaimStatus.AlreadyProcessed)
+        {
+            return;
+        }
+
+        var processingToken =
+            claim.ProcessingToken ??
+            throw new InvalidOperationException(
+                "A claimed Payments capture message requires a processing token.");
+
+        await using (var settlementDbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken))
+        {
+            var handler =
+                new ExecutePaymentSettlementHandler(
+                    new EfPaymentSettlementStore(
+                        settlementDbContext),
+                    _settlementProvider,
+                    _timeProvider);
+
+            ExecutePaymentSettlementResult result;
+
+            try
+            {
+                result =
+                    await handler.HandleAsync(
+                        new ExecutePaymentSettlementCommand(
+                            command.RequestId,
+                            command.PaymentId,
+                            PaymentSettlementAction.Capture),
+                        cancellationToken);
+            }
+            catch (PaymentSettlementConflictException exception)
+            {
+                throw new NonRetryableIntegrationMessageException(
+                    exception.Message);
+            }
+            catch (PaymentSettlementNotFoundException exception)
+            {
+                throw new NonRetryableIntegrationMessageException(
+                    exception.Message);
+            }
+            catch (PaymentSettlementNotAllowedException exception)
+            {
+                throw new NonRetryableIntegrationMessageException(
+                    exception.Message);
+            }
+
+            if (result.OrderId != command.OrderId)
+            {
+                throw new NonRetryableIntegrationMessageException(
+                    "Capture payment command order ID does not match the persisted payment.");
+            }
+        }
+
+        await using var completionDbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var completion =
+            new EfPaymentsInboxMessageProcessor(
+                completionDbContext,
+                _timeProvider);
+
+        await completion.CompleteAsync(
+            "payments-capture",
+            message,
+            processingToken,
+            _ => Task.CompletedTask,
+            cancellationToken);
+    }
+
     private async Task<PaymentsInboxClaimResult> ClaimWhenAvailableAsync(
+        string consumerName,
         IntegrationMessageEnvelope message,
         CancellationToken cancellationToken)
     {
@@ -140,7 +271,7 @@ public sealed class PaymentsInboundMessageConsumer :
 
                 claim =
                     await inbox.ClaimAsync(
-                        ConsumerName,
+                        consumerName,
                         message,
                         ProcessingLease,
                         cancellationToken);

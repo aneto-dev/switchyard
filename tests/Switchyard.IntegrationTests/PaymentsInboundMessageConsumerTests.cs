@@ -341,6 +341,7 @@ public sealed class PaymentsInboundMessageConsumerTests
                 new TestPaymentsDbContextFactory(
                     connectionString),
                 provider,
+                provider,
                 TimeProvider.System);
 
         await consumer.ConsumeAsync(
@@ -579,6 +580,7 @@ public sealed class PaymentsInboundMessageConsumerTests
     {
         return new PaymentsInboundMessageConsumer(
             new TestPaymentsDbContextFactory(connectionString),
+            provider,
             provider,
             new FixedTimeProvider(nowUtc));
     }
