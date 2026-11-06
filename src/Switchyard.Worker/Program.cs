@@ -157,6 +157,27 @@ var paymentsReconciliationOptions =
                 1000,
                 "SWITCHYARD_PAYMENTS_RECONCILIATION_POLL_MILLISECONDS")));
 
+var paymentsSettlementReconciliationOptions =
+    new PaymentsSettlementReconciliationOptions(
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_BATCH_SIZE"],
+            25,
+            "SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_BATCH_SIZE"),
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_MAX_ATTEMPTS"],
+            5,
+            "SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_MAX_ATTEMPTS"),
+        TimeSpan.FromSeconds(
+            GetNonNegativeInt(
+                builder.Configuration["SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_RETRY_SECONDS"],
+                30,
+                "SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_RETRY_SECONDS")),
+        TimeSpan.FromMilliseconds(
+            GetPositiveInt(
+                builder.Configuration["SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_POLL_MILLISECONDS"],
+                1000,
+                "SWITCHYARD_PAYMENTS_SETTLEMENT_RECONCILIATION_POLL_MILLISECONDS")));
+
 var paymentAuthorisationScenario =
     GetEnumSetting(
         builder.Configuration["SWITCHYARD_PAYMENT_AUTHORISATION_SCENARIO"],
@@ -168,6 +189,18 @@ var paymentReconciliationScenario =
         builder.Configuration["SWITCHYARD_PAYMENT_RECONCILIATION_SCENARIO"],
         SimulatedPaymentReconciliationScenario.Authorise,
         "SWITCHYARD_PAYMENT_RECONCILIATION_SCENARIO");
+
+var paymentSettlementScenario =
+    GetEnumSetting(
+        builder.Configuration["SWITCHYARD_PAYMENT_SETTLEMENT_SCENARIO"],
+        SimulatedPaymentSettlementScenario.Succeed,
+        "SWITCHYARD_PAYMENT_SETTLEMENT_SCENARIO");
+
+var paymentSettlementReconciliationScenario =
+    GetEnumSetting(
+        builder.Configuration["SWITCHYARD_PAYMENT_SETTLEMENT_RECONCILIATION_SCENARIO"],
+        SimulatedPaymentSettlementReconciliationScenario.Succeed,
+        "SWITCHYARD_PAYMENT_SETTLEMENT_RECONCILIATION_SCENARIO");
 
 var reservationPolicy =
     new InventoryReservationPolicy(
@@ -203,13 +236,16 @@ builder.Services.AddSingleton(inventoryOutboxOptions);
 builder.Services.AddSingleton(paymentsOutboxOptions);
 builder.Services.AddSingleton(fulfilmentOutboxOptions);
 builder.Services.AddSingleton(paymentsReconciliationOptions);
+builder.Services.AddSingleton(paymentsSettlementReconciliationOptions);
 builder.Services.AddSingleton(reservationPolicy);
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddSingleton(
     new SimulatedPaymentAuthorisationProvider(
         paymentAuthorisationScenario,
-        paymentReconciliationScenario));
+        paymentReconciliationScenario,
+        paymentSettlementScenario,
+        paymentSettlementReconciliationScenario));
 
 builder.Services.AddSingleton<IPaymentAuthorisationProvider>(
     provider =>
@@ -222,6 +258,11 @@ builder.Services.AddSingleton<IPaymentAuthorisationReconciliationProvider>(
             SimulatedPaymentAuthorisationProvider>());
 
 builder.Services.AddSingleton<IPaymentSettlementProvider>(
+    provider =>
+        provider.GetRequiredService<
+            SimulatedPaymentAuthorisationProvider>());
+
+builder.Services.AddSingleton<IPaymentSettlementReconciliationProvider>(
     provider =>
         provider.GetRequiredService<
             SimulatedPaymentAuthorisationProvider>());
@@ -352,11 +393,16 @@ builder.Services.AddSingleton<
     IPaymentsAuthorisationReconciliationCycle,
     PaymentsAuthorisationReconciliationCycle>();
 
+builder.Services.AddSingleton<
+    IPaymentsSettlementReconciliationCycle,
+    PaymentsSettlementReconciliationCycle>();
+
 builder.Services.AddHostedService<OrderingOutboxDispatchWorker>();
 builder.Services.AddHostedService<InventoryOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsOutboxDispatchWorker>();
 builder.Services.AddHostedService<FulfilmentOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsAuthorisationReconciliationWorker>();
+builder.Services.AddHostedService<PaymentsSettlementReconciliationWorker>();
 builder.Services.AddHostedService<ServiceBusSubscriptionWorker>();
 
 await builder.Build().RunAsync();
