@@ -153,6 +153,52 @@ public sealed class PaymentCaptureInboundMessageTests
         Assert.Equal(
             (int)PaymentSettlementStatus.Succeeded,
             reader.GetInt32(1));
+
+        await reader.DisposeAsync();
+
+        await using var outcomeSql =
+            new Npgsql.NpgsqlCommand(
+                """
+                SELECT message_type, payload::text
+                FROM payments.outbox_messages
+                WHERE correlation_id = @order_id
+                  AND message_type = @message_type;
+                """,
+                connection);
+
+        outcomeSql.Parameters.AddWithValue(
+            "order_id",
+            orderId);
+
+        outcomeSql.Parameters.AddWithValue(
+            "message_type",
+            PaymentCapturedV1.MessageType);
+
+        await using var outcomeReader =
+            await outcomeSql.ExecuteReaderAsync(
+                cancellationToken);
+
+        Assert.True(
+            await outcomeReader.ReadAsync(
+                cancellationToken));
+
+        Assert.Equal(
+            PaymentCapturedV1.MessageType,
+            outcomeReader.GetString(0));
+
+        var captured =
+            JsonSerializer.Deserialize<PaymentCapturedV1>(
+                outcomeReader.GetString(1),
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(captured);
+        Assert.Equal(captureRequestId, captured.RequestId);
+        Assert.Equal(orderId, captured.OrderId);
+        Assert.Equal(paymentId, captured.PaymentId);
+
+        Assert.False(
+            await outcomeReader.ReadAsync(
+                cancellationToken));
     }
 
     private static PaymentsDbContext CreateDbContext(

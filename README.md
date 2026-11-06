@@ -73,6 +73,10 @@ Implemented so far:
 - prepared fulfilment units can be grouped into shipments
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
+- Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox
+- Fulfilment records payment-capture state separately from physical shipment state and applies outcomes idempotently
+- indeterminate captures are reconciled against provider truth by a dedicated background cycle
+- resolved capture reconciliation publishes the final captured or not-applied outcome exactly once
 - domain, application, API and architecture tests
 
 The Worker includes inbound Service Bus receive and settlement infrastructure, and Ordering now has the durable order-placement process-manager foundation. v0.5 is extending that workflow across Inventory and Payments through explicit commands and events.
@@ -167,7 +171,7 @@ Set the Ordering, Inventory and Payments PostgreSQL connection strings and the l
 dotnet run --project src/Switchyard.Worker
 ```
 
-The local emulator defines an `ordering` subscription for `inventory.event.*` and `payments.event.*` subjects, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1`, an active `payments` subscription for `payments.command.*` and a `fulfilment` subscription for `ordering.event.confirmed.v1`. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
+The local emulator defines an `ordering` subscription for Inventory outcomes and payment-authorisation outcomes, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1`, an active `payments` subscription for `payments.command.*` and a `fulfilment` subscription for `ordering.event.confirmed.v1` plus payment-capture outcomes. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
 
 Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
 
@@ -178,6 +182,8 @@ Ordering now consumes those Inventory outcomes through its durable inbox. Per-or
 Inventory consumes `inventory.command.release.v1` through the dedicated `inventory-release` subscription. Reservation release state, the durable Inventory inbox receipt and the resulting `inventory.event.released.v1` or `inventory.event.expired.v1` outbox event commit within one Inventory transaction. The release command carries the original reservation request ID so Inventory can verify that the request, order and reservation belong together before returning stock. Released and expired events report the persisted release or expiry time rather than the later observation time. Ordering consumes those outcomes through its durable inbox and marks compensation complete only for the matching reservation request; once every compensation obligation is satisfied, the placement process and Pending order move to `Failed`. Payments now consumes `payments.command.authorise.v1` through a durable inbox claim. Reservation validity is checked before a first provider side effect, and a durable provider-invocation marker is claimed before the provider call so recovery never blindly creates a second authorisation. The resulting authorised, declined or indeterminate outcome is written to the Payments outbox and dispatched back to Ordering.
 
 Indeterminate authorisations are reconciled against provider truth by a bounded background cycle using the same provider identity. Definite reconciliation outcomes are persisted atomically with their outgoing Payments event. Repeated unknown results stop after the configured attempt policy and emit `payments.event.authorisation-needs-attention.v1`; Ordering then moves the placement process to `NeedsAttention`. Ordering also refuses to confirm against an expired reservation and handles reservation expiry while payment is awaiting or indeterminate.
+
+When the first shipment is dispatched, Fulfilment persists a stable full-payment capture request and writes `payments.command.capture.v1` in the same transaction. Payments executes that request with provider idempotency, publishes a captured or indeterminate outcome, and Fulfilment records the payment result without rewriting the shipment's physical dispatch history. Indeterminate captures are retried by the settlement-reconciliation worker; a definite provider result is persisted atomically with the final `payments.event.captured.v1` or `payments.event.capture-not-applied.v1` outbox event.
 
 The emulator is development/test infrastructure only. Inbox idempotency remains authoritative even when broker duplicate-detection features are available.
 

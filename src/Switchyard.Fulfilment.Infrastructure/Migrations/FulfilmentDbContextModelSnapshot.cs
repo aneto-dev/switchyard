@@ -224,6 +224,11 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("uuid")
                     .HasColumnName("payment_id");
 
+                b.Property<string>("PaymentCaptureProviderReference")
+                    .HasMaxLength(100)
+                    .HasColumnType("character varying(100)")
+                    .HasColumnName("payment_capture_provider_reference");
+
                 b.Property<Guid?>("PaymentCaptureRequestId")
                     .HasColumnType("uuid")
                     .HasColumnName("payment_capture_request_id");
@@ -231,6 +236,14 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                 b.Property<DateTimeOffset?>("PaymentCaptureRequestedAtUtc")
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("payment_capture_requested_at_utc");
+
+                b.Property<DateTimeOffset?>("PaymentCaptureResolvedAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("payment_capture_resolved_at_utc");
+
+                b.Property<int>("PaymentCaptureStatus")
+                    .HasColumnType("integer")
+                    .HasColumnName("payment_capture_status");
 
                 b.Property<int>("Status")
                     .HasColumnType("integer")
@@ -250,6 +263,15 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     "fulfilment",
                     t =>
                     {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_capture_resolved_time",
+                            "payment_capture_resolved_at_utc IS NULL OR payment_capture_resolved_at_utc >= payment_capture_requested_at_utc");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_capture_shape",
+                            "(payment_capture_request_id IS NULL AND payment_capture_requested_at_utc IS NULL AND payment_capture_status = 0 AND payment_capture_provider_reference IS NULL AND payment_capture_resolved_at_utc IS NULL) OR (payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status = 1 AND payment_capture_provider_reference IS NULL AND payment_capture_resolved_at_utc IS NULL) OR (payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status = 2 AND payment_capture_provider_reference IS NOT NULL AND payment_capture_resolved_at_utc IS NOT NULL) OR (payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status IN (3, 4) AND payment_capture_resolved_at_utc IS NOT NULL)");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_capture_status",
+                            "payment_capture_status BETWEEN 0 AND 4");
                         t.HasCheckConstraint(
                             "ck_fulfilment_request_order_number",
                             "btrim(order_number) <> ''");
