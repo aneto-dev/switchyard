@@ -11,6 +11,9 @@ internal sealed class FulfilmentRequestRecord
     public DateTimeOffset ConfirmedAtUtc { get; set; }
     public Guid? PaymentCaptureRequestId { get; set; }
     public DateTimeOffset? PaymentCaptureRequestedAtUtc { get; set; }
+    public FulfilmentPaymentCaptureStatus PaymentCaptureStatus { get; set; }
+    public string? PaymentCaptureProviderReference { get; set; }
+    public DateTimeOffset? PaymentCaptureResolvedAtUtc { get; set; }
     public List<FulfilmentRequestLineRecord> Lines { get; } = [];
     public List<FulfilmentUnitRecord> Units { get; } = [];
     public List<FulfilmentCancellationRecord> Cancellations { get; } = [];

@@ -277,6 +277,15 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     IFulfilmentInboundMessageRoute,
     OrderConfirmedFulfilmentInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IFulfilmentInboundMessageRoute,
+    PaymentCapturedFulfilmentInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IFulfilmentInboundMessageRoute,
+    PaymentCaptureIndeterminateFulfilmentInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IFulfilmentInboundMessageRoute,
+    PaymentCaptureNotAppliedFulfilmentInboundMessageRoute>();
 
 builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
     provider =>
