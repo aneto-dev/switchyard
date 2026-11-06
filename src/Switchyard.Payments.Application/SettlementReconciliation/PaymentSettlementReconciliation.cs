@@ -6,4 +6,5 @@ public sealed record PaymentSettlementReconciliation(
     Guid RequestId,
     PaymentSettlementStatus Status,
     string? ProviderReference,
-    DateTimeOffset ReconciledAtUtc);
+    DateTimeOffset ReconciledAtUtc,
+    int? ExpectedAttemptCount = null);
