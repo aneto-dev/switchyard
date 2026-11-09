@@ -33,6 +33,8 @@ public sealed class EfReturnEligibilityRepository :
                                 .ThenInclude(delivery => delivery.Lines)
                             .Include(candidate => candidate.ReturnRequests)
                                 .ThenInclude(request => request.Lines)
+                            .Include(candidate => candidate.ReturnReceipts)
+                                .ThenInclude(receipt => receipt.Lines)
                             .SingleOrDefaultAsync(
                                 candidate =>
                                     candidate.OrderId ==
@@ -141,37 +143,78 @@ public sealed class EfReturnEligibilityRepository :
 
         foreach (var request in eligibility.ReturnRequests)
         {
-            if (record.ReturnRequests.Any(
+            var persistedRequest =
+                record.ReturnRequests.SingleOrDefault(
                     candidate =>
                         candidate.ReturnRequestId ==
-                        request.ReturnRequestId))
+                        request.ReturnRequestId);
+
+            if (persistedRequest is null)
+            {
+                persistedRequest =
+                    new ReturnRequestRecord
+                    {
+                        OrderId = eligibility.OrderId,
+                        ReturnRequestId = request.ReturnRequestId,
+                        RequestedAtUtc = request.RequestedAtUtc,
+                        Status = (int)request.Status
+                    };
+
+                foreach (var line in request.Lines)
+                {
+                    persistedRequest.Lines.Add(
+                        new ReturnRequestLineRecord
+                        {
+                            OrderId = eligibility.OrderId,
+                            ReturnRequestId = request.ReturnRequestId,
+                            OrderLineId = line.OrderLineId,
+                            Quantity = line.Quantity
+                        });
+                }
+
+                record.ReturnRequests.Add(
+                    persistedRequest);
+            }
+            else
+            {
+                persistedRequest.Status =
+                    (int)request.Status;
+            }
+        }
+
+        foreach (var receipt in eligibility.ReturnReceipts)
+        {
+            if (record.ReturnReceipts.Any(
+                    candidate =>
+                        candidate.ReturnReceiptId ==
+                        receipt.ReturnReceiptId))
             {
                 continue;
             }
 
-            var persistedRequest =
-                new ReturnRequestRecord
+            var persistedReceipt =
+                new ReturnReceiptRecord
                 {
                     OrderId = eligibility.OrderId,
-                    ReturnRequestId = request.ReturnRequestId,
-                    RequestedAtUtc = request.RequestedAtUtc,
-                    Status = (int)request.Status
+                    ReturnReceiptId = receipt.ReturnReceiptId,
+                    ReturnRequestId = receipt.ReturnRequestId,
+                    ReceivedAtUtc = receipt.ReceivedAtUtc
                 };
 
-            foreach (var line in request.Lines)
+            foreach (var line in receipt.Lines)
             {
-                persistedRequest.Lines.Add(
-                    new ReturnRequestLineRecord
+                persistedReceipt.Lines.Add(
+                    new ReturnReceiptLineRecord
                     {
                         OrderId = eligibility.OrderId,
-                        ReturnRequestId = request.ReturnRequestId,
+                        ReturnReceiptId = receipt.ReturnReceiptId,
                         OrderLineId = line.OrderLineId,
                         Quantity = line.Quantity
                     });
             }
 
-            record.ReturnRequests.Add(
-                persistedRequest);
+            record.ReturnReceipts.Add(
+                persistedReceipt);
         }
 
         await _dbContext.SaveChangesAsync(
@@ -222,6 +265,23 @@ public sealed class EfReturnEligibilityRepository :
                                      .Select(
                                          line =>
                                              new ReturnRequestLine(
+                                                 line.OrderLineId,
+                                                 line.Quantity))
+                                     .ToArray())),
+            record.ReturnReceipts
+                  .OrderBy(receipt => receipt.ReceivedAtUtc)
+                  .ThenBy(receipt => receipt.ReturnReceiptId)
+                  .Select(
+                      receipt =>
+                          new ReturnReceipt(
+                              receipt.ReturnReceiptId,
+                              receipt.ReturnRequestId,
+                              receipt.ReceivedAtUtc,
+                              receipt.Lines
+                                     .OrderBy(line => line.OrderLineId)
+                                     .Select(
+                                         line =>
+                                             new ReturnReceiptLine(
                                                  line.OrderLineId,
                                                  line.Quantity))
                                      .ToArray())));

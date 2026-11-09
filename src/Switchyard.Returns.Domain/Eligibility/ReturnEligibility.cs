@@ -5,13 +5,15 @@ public sealed class ReturnEligibility
     private readonly List<ReturnEligibilityLine> _lines;
     private readonly List<ShipmentDeliveryFact> _deliveries;
     private readonly List<ReturnRequest> _returnRequests;
+    private readonly List<ReturnReceipt> _returnReceipts;
 
     private ReturnEligibility(
         Guid orderId,
         string orderNumber,
         IEnumerable<ReturnEligibilityLine> lines,
         IEnumerable<ShipmentDeliveryFact> deliveries,
-        IEnumerable<ReturnRequest> returnRequests)
+        IEnumerable<ReturnRequest> returnRequests,
+        IEnumerable<ReturnReceipt> returnReceipts)
     {
         if (orderId == Guid.Empty)
         {
@@ -32,6 +34,7 @@ public sealed class ReturnEligibility
         _lines = lines.ToList();
         _deliveries = deliveries.ToList();
         _returnRequests = returnRequests.ToList();
+        _returnReceipts = returnReceipts.ToList();
     }
 
     public Guid OrderId { get; }
@@ -39,6 +42,7 @@ public sealed class ReturnEligibility
     public IReadOnlyList<ReturnEligibilityLine> Lines => _lines;
     public IReadOnlyList<ShipmentDeliveryFact> Deliveries => _deliveries;
     public IReadOnlyList<ReturnRequest> ReturnRequests => _returnRequests;
+    public IReadOnlyList<ReturnReceipt> ReturnReceipts => _returnReceipts;
 
     public static ReturnEligibility Create(
         Guid orderId,
@@ -48,6 +52,7 @@ public sealed class ReturnEligibility
             orderNumber,
             [],
             [],
+            [],
             []);
 
     public static ReturnEligibility Rehydrate(
@@ -55,13 +60,15 @@ public sealed class ReturnEligibility
         string orderNumber,
         IEnumerable<ReturnEligibilityLine> lines,
         IEnumerable<ShipmentDeliveryFact> deliveries,
-        IEnumerable<ReturnRequest>? returnRequests = null) =>
+        IEnumerable<ReturnRequest>? returnRequests = null,
+        IEnumerable<ReturnReceipt>? returnReceipts = null) =>
         new(
             orderId,
             orderNumber,
             lines,
             deliveries,
-            returnRequests ?? []);
+            returnRequests ?? [],
+            returnReceipts ?? []);
 
     public bool RecordDelivery(
         Guid shipmentId,
@@ -107,10 +114,8 @@ public sealed class ReturnEligibility
 
         if (existing is not null)
         {
-            if (existing.DeliveredAtUtc !=
-                    deliveredAtUtc ||
-                !existing.Lines.SequenceEqual(
-                    normalized))
+            if (existing.DeliveredAtUtc != deliveredAtUtc ||
+                !existing.Lines.SequenceEqual(normalized))
             {
                 throw new ReturnEligibilityConflictException(
                     OrderId,
@@ -197,10 +202,8 @@ public sealed class ReturnEligibility
 
         if (existing is not null)
         {
-            if (existing.RequestedAtUtc !=
-                    requestedAtUtc ||
-                !existing.Lines.SequenceEqual(
-                    normalized))
+            if (existing.RequestedAtUtc != requestedAtUtc ||
+                !existing.Lines.SequenceEqual(normalized))
             {
                 throw new ReturnRequestConflictException(
                     OrderId,
@@ -248,6 +251,181 @@ public sealed class ReturnEligibility
                 requestedAtUtc,
                 ReturnRequestStatus.Authorised,
                 normalized));
+
+        return true;
+    }
+
+    public bool ReceiveReturn(
+        Guid returnRequestId,
+        Guid returnReceiptId,
+        IEnumerable<ReturnReceiptLine> lines,
+        DateTimeOffset receivedAtUtc)
+    {
+        if (returnRequestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Return request ID cannot be empty.",
+                nameof(returnRequestId));
+        }
+
+        if (returnReceiptId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Return receipt ID cannot be empty.",
+                nameof(returnReceiptId));
+        }
+
+        if (receivedAtUtc == default)
+        {
+            throw new ArgumentException(
+                "Return receipt time is required.",
+                nameof(receivedAtUtc));
+        }
+
+        ArgumentNullException.ThrowIfNull(lines);
+
+        var normalized =
+            NormalizeLines(
+                lines.Select(
+                    line =>
+                        new QuantityLine(
+                            line.OrderLineId,
+                            line.Quantity)),
+                nameof(lines))
+            .Select(
+                line =>
+                    new ReturnReceiptLine(
+                        line.OrderLineId,
+                        line.Quantity))
+            .ToArray();
+
+        var existingReceipt =
+            _returnReceipts.SingleOrDefault(
+                receipt =>
+                    receipt.ReturnReceiptId ==
+                    returnReceiptId);
+
+        if (existingReceipt is not null)
+        {
+            if (existingReceipt.ReturnRequestId != returnRequestId ||
+                existingReceipt.ReceivedAtUtc != receivedAtUtc ||
+                !existingReceipt.Lines.SequenceEqual(normalized))
+            {
+                throw new ReturnReceiptConflictException(
+                    OrderId,
+                    returnReceiptId);
+            }
+
+            return false;
+        }
+
+        var requestIndex =
+            _returnRequests.FindIndex(
+                request =>
+                    request.ReturnRequestId ==
+                    returnRequestId);
+
+        if (requestIndex < 0)
+        {
+            throw new ReturnRequestNotFoundException(
+                OrderId,
+                returnRequestId);
+        }
+
+        var request =
+            _returnRequests[requestIndex];
+
+        foreach (var receivedLine in normalized)
+        {
+            var requestedLine =
+                request.Lines.SingleOrDefault(
+                    line =>
+                        line.OrderLineId ==
+                        receivedLine.OrderLineId);
+
+            var alreadyReceived =
+                _returnReceipts
+                    .Where(
+                        receipt =>
+                            receipt.ReturnRequestId ==
+                            returnRequestId)
+                    .SelectMany(
+                        receipt =>
+                            receipt.Lines)
+                    .Where(
+                        line =>
+                            line.OrderLineId ==
+                            receivedLine.OrderLineId)
+                    .Sum(
+                        line =>
+                            line.Quantity);
+
+            var outstanding =
+                requestedLine is null
+                    ? 0
+                    : requestedLine.Quantity -
+                      alreadyReceived;
+
+            if (receivedLine.Quantity >
+                outstanding)
+            {
+                throw new ReturnReceiptQuantityNotAuthorisedException(
+                    receivedLine.OrderLineId,
+                    receivedLine.Quantity,
+                    outstanding);
+            }
+        }
+
+        foreach (var receivedLine in normalized)
+        {
+            _lines.Single(
+                    line =>
+                        line.OrderLineId ==
+                        receivedLine.OrderLineId)
+                .ReceiveAuthorised(
+                    receivedLine.Quantity);
+        }
+
+        _returnReceipts.Add(
+            new ReturnReceipt(
+                returnReceiptId,
+                returnRequestId,
+                receivedAtUtc,
+                normalized));
+
+        var fullyReceived =
+            request.Lines.All(
+                requestedLine =>
+                {
+                    var receivedQuantity =
+                        _returnReceipts
+                            .Where(
+                                receipt =>
+                                    receipt.ReturnRequestId ==
+                                    returnRequestId)
+                            .SelectMany(
+                                receipt =>
+                                    receipt.Lines)
+                            .Where(
+                                line =>
+                                    line.OrderLineId ==
+                                    requestedLine.OrderLineId)
+                            .Sum(
+                                line =>
+                                    line.Quantity);
+
+                    return receivedQuantity ==
+                           requestedLine.Quantity;
+                });
+
+        _returnRequests[requestIndex] =
+            request with
+            {
+                Status =
+                    fullyReceived
+                        ? ReturnRequestStatus.Received
+                        : ReturnRequestStatus.PartiallyReceived
+            };
 
         return true;
     }
@@ -380,11 +558,35 @@ public sealed class ReturnEligibilityLine
                 AuthorisedReturnQuantity +
                 quantity);
     }
+
+    internal void ReceiveAuthorised(
+        int quantity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            quantity);
+
+        if (quantity >
+            AuthorisedReturnQuantity)
+        {
+            throw new InvalidOperationException(
+                "Received quantity cannot exceed authorised return quantity.");
+        }
+
+        AuthorisedReturnQuantity -=
+            quantity;
+
+        ReturnedQuantity =
+            checked(
+                ReturnedQuantity +
+                quantity);
+    }
 }
 
 public enum ReturnRequestStatus
 {
-    Authorised = 0
+    Authorised = 0,
+    PartiallyReceived = 1,
+    Received = 2
 }
 
 public sealed record ReturnRequest(
@@ -394,6 +596,16 @@ public sealed record ReturnRequest(
     IReadOnlyList<ReturnRequestLine> Lines);
 
 public sealed record ReturnRequestLine(
+    Guid OrderLineId,
+    int Quantity);
+
+public sealed record ReturnReceipt(
+    Guid ReturnReceiptId,
+    Guid ReturnRequestId,
+    DateTimeOffset ReceivedAtUtc,
+    IReadOnlyList<ReturnReceiptLine> Lines);
+
+public sealed record ReturnReceiptLine(
     Guid OrderLineId,
     int Quantity);
 
@@ -445,4 +657,45 @@ public sealed class ReturnQuantityNotEligibleException : Exception
     public Guid OrderLineId { get; }
     public int RequestedQuantity { get; }
     public int ReturnableQuantity { get; }
+}
+
+public sealed class ReturnRequestNotFoundException : Exception
+{
+    public ReturnRequestNotFoundException(
+        Guid orderId,
+        Guid returnRequestId)
+        : base(
+            $"Return request '{returnRequestId}' was not found for order '{orderId}'.")
+    {
+    }
+}
+
+public sealed class ReturnReceiptConflictException : Exception
+{
+    public ReturnReceiptConflictException(
+        Guid orderId,
+        Guid returnReceiptId)
+        : base(
+            $"Return receipt '{returnReceiptId}' for order '{orderId}' already exists with different details.")
+    {
+    }
+}
+
+public sealed class ReturnReceiptQuantityNotAuthorisedException : Exception
+{
+    public ReturnReceiptQuantityNotAuthorisedException(
+        Guid orderLineId,
+        int receivedQuantity,
+        int outstandingQuantity)
+        : base(
+            $"Order line '{orderLineId}' received return quantity {receivedQuantity}, but only {outstandingQuantity} remains authorised.")
+    {
+        OrderLineId = orderLineId;
+        ReceivedQuantity = receivedQuantity;
+        OutstandingQuantity = outstandingQuantity;
+    }
+
+    public Guid OrderLineId { get; }
+    public int ReceivedQuantity { get; }
+    public int OutstandingQuantity { get; }
 }
