@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Switchyard.Returns.Domain\Switchyard.Returns.Domain.csproj" />
+  </ItemGroup>
+</Project>

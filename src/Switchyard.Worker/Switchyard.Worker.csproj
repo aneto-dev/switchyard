@@ -17,5 +17,8 @@
     <ProjectReference Include="..\Switchyard.Payments.Application\Switchyard.Payments.Application.csproj" />
     <ProjectReference Include="..\Switchyard.Payments.Domain\Switchyard.Payments.Domain.csproj" />
     <ProjectReference Include="..\Switchyard.Payments.Infrastructure\Switchyard.Payments.Infrastructure.csproj" />
+    <ProjectReference Include="..\Switchyard.Returns.Application\Switchyard.Returns.Application.csproj" />
+    <ProjectReference Include="..\Switchyard.Returns.Domain\Switchyard.Returns.Domain.csproj" />
+    <ProjectReference Include="..\Switchyard.Returns.Infrastructure\Switchyard.Returns.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

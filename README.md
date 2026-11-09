@@ -72,6 +72,9 @@ Implemented so far:
 - Fulfilment owns the prepare-vs-cancel race under a row lock and durably records accepted or rejected cancellation decisions
 - prepared fulfilment units can be grouped into shipments
 - shipment creation, dispatch and delivery publish durable quantity-aware Fulfilment events
+- Returns consumes delivered-shipment facts through its own durable inbox
+- delivered quantities are projected per order line without reaching into Fulfilment persistence
+- duplicate shipment-delivery messages are replay-safe and cannot inflate return eligibility
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox
@@ -145,6 +148,7 @@ docker compose -f infrastructure/local/compose.yml up -d postgres
 ./scripts/apply-inventory-migrations.ps1
 ./scripts/apply-payments-migrations.ps1
 ./scripts/apply-fulfilment-migrations.ps1
+./scripts/apply-returns-migrations.ps1
 dotnet restore Switchyard.sln
 dotnet build Switchyard.sln -c Release --no-restore
 dotnet test Switchyard.sln -c Release --no-build
@@ -166,13 +170,13 @@ For local development, Switchyard includes configuration for the official Azure 
 docker compose -f infrastructure/local/servicebus-emulator.compose.yml up -d
 ```
 
-Set the Ordering, Inventory and Payments PostgreSQL connection strings and the local emulator connection string in the Worker process environment, then run:
+Set the Ordering, Inventory, Payments, Fulfilment and Returns PostgreSQL connection strings and the local emulator connection string in the Worker process environment, then run:
 
 ```powershell
 dotnet run --project src/Switchyard.Worker
 ```
 
-The local emulator defines an `ordering` subscription for Inventory outcomes and payment-authorisation outcomes, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1`, an active `payments` subscription for `payments.command.*` and a `fulfilment` subscription for `ordering.event.confirmed.v1` plus payment-capture outcomes. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
+The local emulator defines an `ordering` subscription for Inventory outcomes and payment-authorisation outcomes, an `inventory` subscription for `inventory.command.reserve.v1`, an active `inventory-release` subscription for `inventory.command.release.v1`, an active `payments` subscription for `payments.command.*`, a `fulfilment` subscription for `ordering.event.confirmed.v1` plus payment-capture outcomes, and a `returns` subscription for `fulfilment.event.shipment-delivered.v1`. Ordering, Inventory and Payments receive in PeekLock mode with automatic completion disabled. A message is completed only after its durable consumer boundary succeeds. Malformed, unsupported, conflicting or explicitly non-retryable messages are dead-lettered. Retryable failures use bounded exponential backoff with jitter before abandonment; each subscription's `MaxDeliveryCount` provides the bounded redelivery limit.
 
 Ordering now persists a durable order-placement process at checkout and emits one `inventory.command.reserve.v1` command per order line in the same transaction as the Pending order and outbox work. The process starts in `AwaitingInventory` with a stable reservation request identity per line.
 
@@ -251,6 +255,9 @@ src/
   Switchyard.Payments.Domain/
   Switchyard.Payments.Application/
   Switchyard.Payments.Infrastructure/
+  Switchyard.Returns.Domain/
+  Switchyard.Returns.Application/
+  Switchyard.Returns.Infrastructure/
   Switchyard.Ordering.Domain/
   Switchyard.Ordering.Application/
   Switchyard.Ordering.Infrastructure/

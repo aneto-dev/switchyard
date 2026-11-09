@@ -12,6 +12,7 @@ using Switchyard.Ordering.Infrastructure.Persistence;
 using Switchyard.Payments.Application.Ports;
 using Switchyard.Payments.Infrastructure.Persistence;
 using Switchyard.Payments.Infrastructure.ProviderSimulation;
+using Switchyard.Returns.Infrastructure.Persistence;
 using Switchyard.Worker;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -32,6 +33,10 @@ var fulfilmentConnectionString = GetRequiredSetting(
     builder.Configuration["SWITCHYARD_FULFILMENT_CONNECTION_STRING"],
     "SWITCHYARD_FULFILMENT_CONNECTION_STRING");
 
+var returnsConnectionString = GetRequiredSetting(
+    builder.Configuration["SWITCHYARD_RETURNS_CONNECTION_STRING"],
+    "SWITCHYARD_RETURNS_CONNECTION_STRING");
+
 var serviceBusOptions = new ServiceBusTransportOptions(
     builder.Configuration["SWITCHYARD_SERVICEBUS_TOPIC"] ?? "switchyard-events",
     builder.Configuration["SWITCHYARD_SERVICEBUS_CONNECTION_STRING"],
@@ -51,6 +56,9 @@ var paymentsReceiveOptions = new ServiceBusReceiveOptions(
 
 var fulfilmentReceiveOptions = new ServiceBusReceiveOptions(
     builder.Configuration["SWITCHYARD_FULFILMENT_SERVICEBUS_SUBSCRIPTION"] ?? "fulfilment");
+
+var returnsReceiveOptions = new ServiceBusReceiveOptions(
+    builder.Configuration["SWITCHYARD_RETURNS_SERVICEBUS_SUBSCRIPTION"] ?? "returns");
 
 var orderingOutboxOptions = new OrderingOutboxWorkerOptions(
     GetPositiveInt(
@@ -230,6 +238,11 @@ builder.Services.AddDbContextFactory<FulfilmentDbContext>(
         options.UseNpgsql(
             fulfilmentConnectionString));
 
+builder.Services.AddDbContextFactory<ReturnsDbContext>(
+    options =>
+        options.UseNpgsql(
+            returnsConnectionString));
+
 builder.Services.AddSingleton(serviceBusOptions);
 builder.Services.AddSingleton(orderingOutboxOptions);
 builder.Services.AddSingleton(inventoryOutboxOptions);
@@ -285,6 +298,7 @@ builder.Services.AddSingleton<OrderingInboundMessageConsumer>();
 builder.Services.AddSingleton<InventoryInboundMessageConsumer>();
 builder.Services.AddSingleton<PaymentsInboundMessageConsumer>();
 builder.Services.AddSingleton<FulfilmentInboundMessageConsumer>();
+builder.Services.AddSingleton<ReturnsInboundMessageConsumer>();
 builder.Services.AddSingleton<
     IOrderingInboundMessageRoute,
     InventoryReservedInboundMessageRoute>();
@@ -327,6 +341,9 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     IFulfilmentInboundMessageRoute,
     PaymentCaptureNotAppliedFulfilmentInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IReturnsInboundMessageRoute,
+    ShipmentDeliveredReturnsInboundMessageRoute>();
 
 builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
     provider =>
@@ -372,6 +389,15 @@ builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
             serviceBusOptions,
             fulfilmentReceiveOptions,
             provider.GetRequiredService<FulfilmentInboundMessageConsumer>()));
+
+builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
+    provider =>
+        CreateEndpoint(
+            "returns",
+            provider,
+            serviceBusOptions,
+            returnsReceiveOptions,
+            provider.GetRequiredService<ReturnsInboundMessageConsumer>()));
 
 builder.Services.AddSingleton<
     IOrderingOutboxDispatchCycle,
