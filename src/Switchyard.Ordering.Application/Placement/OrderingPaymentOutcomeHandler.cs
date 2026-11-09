@@ -343,6 +343,36 @@ public sealed class OrderingPaymentOutcomeHandler
                 order.Id.Value,
                 causationId),
             cancellationToken);
+
+        var commercialSnapshot =
+            new OrderCommercialSnapshotV1(
+                order.Id.Value,
+                paymentId,
+                order.OrderNumber.Value,
+                order.Total.Amount,
+                order.Total.Currency,
+                confirmedAtUtc,
+                order.Lines
+                     .Select(
+                         line =>
+                             new OrderCommercialSnapshotLineV1(
+                                 line.Id.Value,
+                                 line.Quantity,
+                                 line.UnitPrice.Amount,
+                                 line.UnitPrice.Currency))
+                     .ToArray());
+
+        await _outboxWriter.AddAsync(
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                OrderCommercialSnapshotV1.MessageType,
+                JsonSerializer.Serialize(
+                    commercialSnapshot,
+                    JsonSerializerOptions.Web),
+                confirmedAtUtc,
+                order.Id.Value,
+                causationId),
+            cancellationToken);
     }
 
     private async Task StageReleasesAsync(

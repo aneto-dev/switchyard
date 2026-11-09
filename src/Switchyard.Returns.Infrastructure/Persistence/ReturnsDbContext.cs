@@ -9,6 +9,12 @@ public sealed class ReturnsDbContext : DbContext
     {
     }
 
+    internal DbSet<ReturnCommercialSnapshotRecord> CommercialSnapshots =>
+        Set<ReturnCommercialSnapshotRecord>();
+
+    internal DbSet<ReturnCommercialSnapshotLineRecord> CommercialSnapshotLines =>
+        Set<ReturnCommercialSnapshotLineRecord>();
+
     internal DbSet<ReturnEligibilityRecord> Eligibilities =>
         Set<ReturnEligibilityRecord>();
 
@@ -38,6 +44,106 @@ public sealed class ReturnsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var commercial =
+            modelBuilder.Entity<ReturnCommercialSnapshotRecord>();
+
+        commercial.ToTable(
+            "commercial_snapshots",
+            "returns",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_order_number",
+                    "btrim(order_number) <> ''");
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_total_amount",
+                    "total_amount >= 0");
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_currency",
+                    "char_length(currency) = 3");
+            });
+
+        commercial.HasKey(record => record.OrderId)
+                  .HasName("pk_returns_commercial_snapshots");
+
+        commercial.Property(record => record.OrderId)
+                  .HasColumnName("order_id");
+
+        commercial.Property(record => record.PaymentId)
+                  .HasColumnName("payment_id");
+
+        commercial.Property(record => record.OrderNumber)
+                  .HasColumnName("order_number")
+                  .HasMaxLength(50)
+                  .IsRequired();
+
+        commercial.Property(record => record.TotalAmount)
+                  .HasColumnName("total_amount")
+                  .HasColumnType("numeric");
+
+        commercial.Property(record => record.Currency)
+                  .HasColumnName("currency")
+                  .HasMaxLength(3)
+                  .IsRequired();
+
+        commercial.Property(record => record.ConfirmedAtUtc)
+                  .HasColumnName("confirmed_at_utc");
+
+        commercial.HasIndex(record => record.PaymentId)
+                  .IsUnique()
+                  .HasDatabaseName("ux_returns_commercial_payment_id");
+
+        var commercialLine =
+            modelBuilder.Entity<ReturnCommercialSnapshotLineRecord>();
+
+        commercialLine.ToTable(
+            "commercial_snapshot_lines",
+            "returns",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_line_quantity",
+                    "quantity > 0");
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_line_price",
+                    "unit_price_amount >= 0");
+                table.HasCheckConstraint(
+                    "ck_returns_commercial_line_currency",
+                    "char_length(currency) = 3");
+            });
+
+        commercialLine.HasKey(
+                          record => new
+                          {
+                              record.OrderId,
+                              record.OrderLineId
+                          })
+                      .HasName(
+                          "pk_returns_commercial_snapshot_lines");
+
+        commercialLine.Property(record => record.OrderId)
+                      .HasColumnName("order_id");
+
+        commercialLine.Property(record => record.OrderLineId)
+                      .HasColumnName("order_line_id");
+
+        commercialLine.Property(record => record.Quantity)
+                      .HasColumnName("quantity");
+
+        commercialLine.Property(record => record.UnitPriceAmount)
+                      .HasColumnName("unit_price_amount")
+                      .HasColumnType("numeric");
+
+        commercialLine.Property(record => record.Currency)
+                      .HasColumnName("currency")
+                      .HasMaxLength(3)
+                      .IsRequired();
+
+        commercial.HasMany(record => record.Lines)
+                  .WithOne(record => record.Snapshot)
+                  .HasForeignKey(record => record.OrderId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
         var eligibility = modelBuilder.Entity<ReturnEligibilityRecord>();
 
         eligibility.ToTable(

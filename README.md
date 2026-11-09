@@ -80,6 +80,8 @@ Implemented so far:
 - concurrent return requests cannot reserve the same delivered quantity twice
 - authorised return requests can be partially or fully received without changing total return eligibility
 - return receipt replay is idempotent and receipt quantities cannot exceed outstanding authorisation
+- Ordering publishes a separate price-complete commercial snapshot without changing the existing OrderConfirmedV1 contract
+- Returns owns the PaymentId, currency and line unit-price snapshot required to value later partial refunds
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox

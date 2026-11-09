@@ -149,6 +149,41 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 Assert.Equal("Helmet", line.ProductName);
                 Assert.Equal(1, line.Quantity);
             });
+
+        var commercialEnvelope =
+            Assert.Single(
+                await ReadOrderCommercialSnapshotsAsync(
+                    connectionString,
+                    setup.OrderId,
+                    cancellationToken));
+
+        Assert.Equal(
+            authorisedMessageId,
+            commercialEnvelope.CausationId);
+
+        var commercial =
+            JsonSerializer.Deserialize<OrderCommercialSnapshotV1>(
+                commercialEnvelope.PayloadJson,
+                JsonSerializerOptions.Web);
+
+        Assert.NotNull(commercial);
+        Assert.Equal(order.Id.Value, commercial.OrderId);
+        Assert.Equal(order.Total.Amount, commercial.TotalAmount);
+        Assert.Equal(order.Total.Currency, commercial.Currency);
+        Assert.Collection(
+            commercial.Lines,
+            line =>
+            {
+                Assert.Equal(1, line.Quantity);
+                Assert.Equal(1299.99m, line.UnitPriceAmount);
+                Assert.Equal("GBP", line.Currency);
+            },
+            line =>
+            {
+                Assert.Equal(1, line.Quantity);
+                Assert.Equal(99.99m, line.UnitPriceAmount);
+                Assert.Equal("GBP", line.Currency);
+            });
     }
 
     [Fact]
@@ -1200,6 +1235,67 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 new IntegrationMessageEnvelope(
                     reader.GetGuid(0),
                     OrderConfirmedV1.MessageType,
+                    reader.GetString(1),
+                    reader.GetFieldValue<DateTimeOffset>(2),
+                    reader.GetGuid(3),
+                    reader.IsDBNull(4)
+                        ? null
+                        : reader.GetGuid(4)));
+        }
+
+        return events;
+    }
+
+    private static async Task<IReadOnlyList<IntegrationMessageEnvelope>> ReadOrderCommercialSnapshotsAsync(
+        string connectionString,
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var events =
+            new List<IntegrationMessageEnvelope>();
+
+        await using var connection =
+            new NpgsqlConnection(
+                connectionString);
+
+        await connection.OpenAsync(
+            cancellationToken);
+
+        await using var command =
+            new NpgsqlCommand(
+                """
+                SELECT
+                    message_id,
+                    payload::text,
+                    occurred_at_utc,
+                    correlation_id,
+                    causation_id
+                FROM ordering.outbox_messages
+                WHERE message_type = @message_type
+                  AND correlation_id = @order_id
+                ORDER BY occurred_at_utc, message_id;
+                """,
+                connection);
+
+        command.Parameters.AddWithValue(
+            "message_type",
+            OrderCommercialSnapshotV1.MessageType);
+
+        command.Parameters.AddWithValue(
+            "order_id",
+            orderId);
+
+        await using var reader =
+            await command.ExecuteReaderAsync(
+                cancellationToken);
+
+        while (await reader.ReadAsync(
+                   cancellationToken))
+        {
+            events.Add(
+                new IntegrationMessageEnvelope(
+                    reader.GetGuid(0),
+                    OrderCommercialSnapshotV1.MessageType,
                     reader.GetString(1),
                     reader.GetFieldValue<DateTimeOffset>(2),
                     reader.GetGuid(3),
