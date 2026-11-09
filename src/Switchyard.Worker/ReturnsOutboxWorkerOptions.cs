@@ -10,11 +10,9 @@ public sealed record ReturnsOutboxWorkerOptions
         TimeSpan retryDelay,
         TimeSpan pollInterval)
     {
-        if (pollInterval <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(pollInterval));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
+            pollInterval,
+            TimeSpan.Zero);
 
         Dispatch =
             new OutboxDispatchOptions(
