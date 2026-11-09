@@ -679,6 +679,7 @@ public sealed class FulfilmentRequest
                 shipmentId,
                 materialized,
                 createdAtUtc,
+                null,
                 null);
 
         var existing =
@@ -762,6 +763,36 @@ public sealed class FulfilmentRequest
             Replayed: false,
             CaptureRequired: true,
             captureRequestId);
+    }
+
+    public bool DeliverShipment(
+        Guid shipmentId,
+        DateTimeOffset deliveredAtUtc)
+    {
+        var shipment =
+            _shipments.SingleOrDefault(
+                candidate =>
+                    candidate.ShipmentId ==
+                    shipmentId) ??
+            throw new InvalidOperationException(
+                $"Fulfilment shipment '{shipmentId}' does not exist.");
+
+        if (shipment.DeliveredAtUtc is not null)
+        {
+            if (shipment.DeliveredAtUtc ==
+                deliveredAtUtc.ToUniversalTime())
+            {
+                return false;
+            }
+
+            throw new FulfilmentShipmentConflictException(
+                shipmentId);
+        }
+
+        shipment.Deliver(
+            deliveredAtUtc);
+
+        return true;
     }
 
     public bool ApplyPaymentCaptureOutcome(
@@ -1258,7 +1289,8 @@ public sealed class FulfilmentShipment
         Guid shipmentId,
         IEnumerable<Guid> unitIds,
         DateTimeOffset createdAtUtc,
-        DateTimeOffset? dispatchedAtUtc)
+        DateTimeOffset? dispatchedAtUtc,
+        DateTimeOffset? deliveredAtUtc = null)
     {
         if (shipmentId == Guid.Empty)
         {
@@ -1293,10 +1325,26 @@ public sealed class FulfilmentShipment
                 "Shipment cannot be dispatched before it is created.");
         }
 
+        if (deliveredAtUtc.HasValue &&
+            !dispatchedAtUtc.HasValue)
+        {
+            throw new ArgumentException(
+                "Shipment cannot be delivered before it is dispatched.",
+                nameof(deliveredAtUtc));
+        }
+
+        if (deliveredAtUtc < dispatchedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deliveredAtUtc),
+                "Shipment cannot be delivered before dispatch.");
+        }
+
         ShipmentId = shipmentId;
         _unitIds = Array.AsReadOnly(materialized);
         CreatedAtUtc = createdAtUtc.ToUniversalTime();
         DispatchedAtUtc = dispatchedAtUtc?.ToUniversalTime();
+        DeliveredAtUtc = deliveredAtUtc?.ToUniversalTime();
     }
 
     public Guid ShipmentId { get; }
@@ -1306,6 +1354,8 @@ public sealed class FulfilmentShipment
     public DateTimeOffset CreatedAtUtc { get; }
 
     public DateTimeOffset? DispatchedAtUtc { get; private set; }
+
+    public DateTimeOffset? DeliveredAtUtc { get; private set; }
 
     internal void Dispatch(DateTimeOffset dispatchedAtUtc)
     {
@@ -1317,12 +1367,40 @@ public sealed class FulfilmentShipment
                 "Shipment dispatch time must be on or after creation.");
         }
 
+        if (DeliveredAtUtc is not null)
+        {
+            throw new InvalidOperationException(
+                "A delivered shipment cannot be dispatched again.");
+        }
+
         DispatchedAtUtc = dispatchedAtUtc.ToUniversalTime();
+    }
+
+    internal void Deliver(
+        DateTimeOffset deliveredAtUtc)
+    {
+        if (DispatchedAtUtc is null)
+        {
+            throw new InvalidOperationException(
+                "Shipment must be dispatched before delivery.");
+        }
+
+        if (deliveredAtUtc == default ||
+            deliveredAtUtc < DispatchedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(deliveredAtUtc),
+                "Shipment delivery time must be on or after dispatch.");
+        }
+
+        DeliveredAtUtc =
+            deliveredAtUtc.ToUniversalTime();
     }
 
     internal bool Matches(FulfilmentShipment other) =>
         CreatedAtUtc == other.CreatedAtUtc &&
         DispatchedAtUtc == other.DispatchedAtUtc &&
+        DeliveredAtUtc == other.DeliveredAtUtc &&
         UnitIds.SequenceEqual(other.UnitIds);
 }
 

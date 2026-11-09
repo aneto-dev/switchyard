@@ -374,6 +374,12 @@ public sealed class FulfilmentDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_fulfilment_shipment_dispatch_time",
                     "dispatched_at_utc IS NULL OR dispatched_at_utc >= created_at_utc");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_shipment_delivery_shape",
+                    "delivered_at_utc IS NULL OR dispatched_at_utc IS NOT NULL");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_shipment_delivery_time",
+                    "delivered_at_utc IS NULL OR delivered_at_utc >= dispatched_at_utc");
             });
 
         shipment.HasKey(
@@ -391,6 +397,9 @@ public sealed class FulfilmentDbContext : DbContext
 
         shipment.Property(record => record.DispatchedAtUtc)
                 .HasColumnName("dispatched_at_utc");
+
+        shipment.Property(record => record.DeliveredAtUtc)
+                .HasColumnName("delivered_at_utc");
 
         request.HasMany(record => record.Shipments)
                .WithOne(record => record.Request)

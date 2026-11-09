@@ -90,6 +90,7 @@ internal sealed class FulfilmentShipmentRecord
     public Guid ShipmentId { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset? DispatchedAtUtc { get; set; }
+    public DateTimeOffset? DeliveredAtUtc { get; set; }
     public FulfilmentRequestRecord Request { get; set; } = null!;
     public List<FulfilmentShipmentUnitRecord> Units { get; } = [];
 }
