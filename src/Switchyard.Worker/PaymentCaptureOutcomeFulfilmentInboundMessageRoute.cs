@@ -157,7 +157,7 @@ internal static class PaymentCaptureOutcomeFulfilmentInboundMessageHandler
 
         try
         {
-            await handler.HandleAsync(
+            await handler.HandleInExistingTransactionAsync(
                 command,
                 cancellationToken);
         }

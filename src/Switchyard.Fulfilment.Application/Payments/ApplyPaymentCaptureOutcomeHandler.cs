@@ -25,6 +25,32 @@ public sealed class ApplyPaymentCaptureOutcomeHandler
             await _repository.BeginTransactionAsync(
                 cancellationToken);
 
+        var result =
+            await HandleCoreAsync(
+                command,
+                cancellationToken);
+
+        await transaction.CommitAsync(
+            cancellationToken);
+
+        return result;
+    }
+
+    public Task<ApplyPaymentCaptureOutcomeResult> HandleInExistingTransactionAsync(
+        ApplyPaymentCaptureOutcomeCommand command,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        return HandleCoreAsync(
+            command,
+            cancellationToken);
+    }
+
+    private async Task<ApplyPaymentCaptureOutcomeResult> HandleCoreAsync(
+        ApplyPaymentCaptureOutcomeCommand command,
+        CancellationToken cancellationToken)
+    {
         var request =
             await _repository.GetByOrderIdForUpdateAsync(
                 command.OrderId,
@@ -46,9 +72,6 @@ public sealed class ApplyPaymentCaptureOutcomeHandler
                 request,
                 cancellationToken);
         }
-
-        await transaction.CommitAsync(
-            cancellationToken);
 
         return new ApplyPaymentCaptureOutcomeResult(
             Replayed: !applied,
