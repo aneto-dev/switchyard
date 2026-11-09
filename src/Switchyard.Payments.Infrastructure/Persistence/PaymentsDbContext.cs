@@ -241,7 +241,37 @@ public sealed class PaymentsDbContext : DbContext
                     "currency ~ '^[A-Z]{3}$'");
                 table.HasCheckConstraint(
                     "ck_payments_refund_status",
-                    "status = 0");
+                    "status IN (0, 1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_provider_key",
+                    "btrim(provider_idempotency_key) <> ''");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_provider_reference",
+                    "provider_reference IS NULL OR btrim(provider_reference) <> ''");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_invocation_time",
+                    "provider_invocation_claimed_at_utc IS NULL OR provider_invocation_claimed_at_utc >= requested_at_utc");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_reconciliation_count",
+                    "reconciliation_attempt_count >= 0");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_reconciliation_shape",
+                    "(reconciliation_attempt_count = 0 AND last_reconciled_at_utc IS NULL) OR " +
+                    "(reconciliation_attempt_count > 0 AND last_reconciled_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_reconciliation_time",
+                    "last_reconciled_at_utc IS NULL OR last_reconciled_at_utc >= requested_at_utc");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_pending_not_reconciled",
+                    "status <> 0 OR reconciliation_attempt_count = 0");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_shape",
+                    "(status = 0 AND provider_reference IS NULL AND resolved_at_utc IS NULL) OR " +
+                    "(status = 1 AND provider_reference IS NOT NULL AND resolved_at_utc IS NOT NULL) OR " +
+                    "(status IN (2, 3) AND resolved_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_resolved_time",
+                    "resolved_at_utc IS NULL OR resolved_at_utc >= requested_at_utc");
             });
 
         refund.HasKey(record => record.RequestId)
@@ -275,9 +305,31 @@ public sealed class PaymentsDbContext : DbContext
               .HasColumnName("status")
               .HasConversion<int>();
 
+        refund.Property(record => record.ProviderIdempotencyKey)
+              .HasColumnName("provider_idempotency_key")
+              .HasMaxLength(100)
+              .IsRequired();
+
+        refund.Property(record => record.ProviderReference)
+              .HasColumnName("provider_reference")
+              .HasMaxLength(100);
+
         refund.Property(record => record.RequestedAtUtc)
               .HasColumnName("requested_at_utc")
               .IsRequired();
+
+        refund.Property(record => record.ProviderInvocationClaimedAtUtc)
+              .HasColumnName("provider_invocation_claimed_at_utc");
+
+        refund.Property(record => record.ResolvedAtUtc)
+              .HasColumnName("resolved_at_utc");
+
+        refund.Property(record => record.ReconciliationAttemptCount)
+              .HasColumnName("reconciliation_attempt_count")
+              .HasDefaultValue(0);
+
+        refund.Property(record => record.LastReconciledAtUtc)
+              .HasColumnName("last_reconciled_at_utc");
 
         refund.HasIndex(record => record.ReturnReceiptId)
               .IsUnique()
@@ -285,6 +337,14 @@ public sealed class PaymentsDbContext : DbContext
 
         refund.HasIndex(record => record.PaymentId)
               .HasDatabaseName("ix_payments_refund_payment");
+
+        refund.HasIndex(record => record.ProviderIdempotencyKey)
+              .IsUnique()
+              .HasDatabaseName("ux_payments_refund_provider_key");
+
+        refund.HasIndex(record => record.ProviderReference)
+              .IsUnique()
+              .HasDatabaseName("ux_payments_refund_provider_reference");
 
         refund.HasOne<PaymentIntentRecord>()
               .WithMany()

@@ -84,7 +84,10 @@ Implemented so far:
 - Returns owns the PaymentId, currency and line unit-price snapshot required to value later partial refunds
 - accepted return receipts atomically stage quantity-valued payment refund commands through a Returns transactional outbox
 - Payments durably accepts refund requests only for definitely captured payments and prevents cumulative over-refunding
-- refund provider execution remains separate from durable refund intake
+- refund execution uses a durable provider-invocation claim before external I/O
+- definite provider refunds resolve to Succeeded and publish `payments.event.refunded.v1`
+- unknown provider outcomes resolve to Indeterminate and are reconciled without a second blind refund call
+- reconciliation can resolve an indeterminate refund to Succeeded or NotApplied and publishes the corresponding final outcome
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox
