@@ -21,6 +21,12 @@ public sealed class ReturnsDbContext : DbContext
     internal DbSet<ShipmentDeliveryLineRecord> ShipmentDeliveryLines =>
         Set<ShipmentDeliveryLineRecord>();
 
+    internal DbSet<ReturnRequestRecord> ReturnRequests =>
+        Set<ReturnRequestRecord>();
+
+    internal DbSet<ReturnRequestLineRecord> ReturnRequestLines =>
+        Set<ReturnRequestLineRecord>();
+
     internal DbSet<ReturnsInboxMessageRecord> InboxMessages =>
         Set<ReturnsInboxMessageRecord>();
 
@@ -52,19 +58,6 @@ public sealed class ReturnsDbContext : DbContext
 
         var line = modelBuilder.Entity<ReturnEligibilityLineRecord>();
 
-        line.ToTable(
-            "return_eligibility_lines",
-            "returns",
-            table =>
-            {
-                table.HasCheckConstraint(
-                    "ck_returns_delivered_quantity",
-                    "delivered_quantity > 0");
-                table.HasCheckConstraint(
-                    "ck_returns_returned_quantity",
-                    "returned_quantity >= 0 AND returned_quantity <= delivered_quantity");
-            });
-
         line.HasKey(record => new { record.OrderId, record.OrderLineId })
             .HasName("pk_returns_return_eligibility_lines");
 
@@ -77,8 +70,27 @@ public sealed class ReturnsDbContext : DbContext
         line.Property(record => record.DeliveredQuantity)
             .HasColumnName("delivered_quantity");
 
+        line.Property(record => record.AuthorisedReturnQuantity)
+            .HasColumnName("authorised_return_quantity");
+
         line.Property(record => record.ReturnedQuantity)
             .HasColumnName("returned_quantity");
+
+        line.ToTable(
+            "return_eligibility_lines",
+            "returns",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_returns_delivered_quantity",
+                    "delivered_quantity > 0");
+                table.HasCheckConstraint(
+                    "ck_returns_returned_quantity",
+                    "returned_quantity >= 0 AND returned_quantity <= delivered_quantity");
+                table.HasCheckConstraint(
+                    "ck_returns_authorised_quantity",
+                    "authorised_return_quantity >= 0 AND authorised_return_quantity + returned_quantity <= delivered_quantity");
+            });
 
         eligibility.HasMany(record => record.Lines)
                    .WithOne(record => record.Eligibility)
@@ -141,6 +153,86 @@ public sealed class ReturnsDbContext : DbContext
                 .WithOne(record => record.Delivery)
                 .HasForeignKey(record => new { record.OrderId, record.ShipmentId })
                 .OnDelete(DeleteBehavior.Cascade);
+
+        var returnRequest =
+            modelBuilder.Entity<ReturnRequestRecord>();
+
+        returnRequest.ToTable(
+            "return_requests",
+            "returns",
+            table =>
+                table.HasCheckConstraint(
+                    "ck_returns_return_request_status",
+                    "status = 0"));
+
+        returnRequest.HasKey(
+                         record => new
+                         {
+                             record.OrderId,
+                             record.ReturnRequestId
+                         })
+                     .HasName(
+                         "pk_returns_return_requests");
+
+        returnRequest.Property(record => record.OrderId)
+                     .HasColumnName("order_id");
+
+        returnRequest.Property(record => record.ReturnRequestId)
+                     .HasColumnName("return_request_id");
+
+        returnRequest.Property(record => record.RequestedAtUtc)
+                     .HasColumnName("requested_at_utc");
+
+        returnRequest.Property(record => record.Status)
+                     .HasColumnName("status");
+
+        eligibility.HasMany(record => record.ReturnRequests)
+                   .WithOne(record => record.Eligibility)
+                   .HasForeignKey(record => record.OrderId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+        var returnRequestLine =
+            modelBuilder.Entity<ReturnRequestLineRecord>();
+
+        returnRequestLine.ToTable(
+            "return_request_lines",
+            "returns",
+            table =>
+                table.HasCheckConstraint(
+                    "ck_returns_return_request_line_quantity",
+                    "quantity > 0"));
+
+        returnRequestLine.HasKey(
+                             record => new
+                             {
+                                 record.OrderId,
+                                 record.ReturnRequestId,
+                                 record.OrderLineId
+                             })
+                         .HasName(
+                             "pk_returns_return_request_lines");
+
+        returnRequestLine.Property(record => record.OrderId)
+                         .HasColumnName("order_id");
+
+        returnRequestLine.Property(record => record.ReturnRequestId)
+                         .HasColumnName("return_request_id");
+
+        returnRequestLine.Property(record => record.OrderLineId)
+                         .HasColumnName("order_line_id");
+
+        returnRequestLine.Property(record => record.Quantity)
+                         .HasColumnName("quantity");
+
+        returnRequest.HasMany(record => record.Lines)
+                     .WithOne(record => record.ReturnRequest)
+                     .HasForeignKey(
+                         record => new
+                         {
+                             record.OrderId,
+                             record.ReturnRequestId
+                         })
+                     .OnDelete(DeleteBehavior.Cascade);
 
         var inbox = modelBuilder.Entity<ReturnsInboxMessageRecord>();
 

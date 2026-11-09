@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.6.0 Fulfilment and cancellation - in development**
+**v0.7.0 Returns and refunds - in development**
 
-The v0.2 Ordering core, v0.3 Inventory reservation lifecycle, v0.4 Payments and v0.5 reliable messaging milestones are complete. v0.6 starts by turning confirmed orders into durable Fulfilment work.
+The v0.2 Ordering core, v0.3 Inventory reservation lifecycle, v0.4 Payments, v0.5 reliable messaging and v0.6 Fulfilment/cancellation milestones are complete. v0.7 starts from delivered shipment facts and builds quantity-safe returns before financial refund execution.
 
 Implemented so far:
 
@@ -75,6 +75,9 @@ Implemented so far:
 - Returns consumes delivered-shipment facts through its own durable inbox
 - delivered quantities are projected per order line without reaching into Fulfilment persistence
 - duplicate shipment-delivery messages are replay-safe and cannot inflate return eligibility
+- return requests are authorised against remaining delivered quantity under the Returns transaction boundary
+- authorised return quantity reduces remaining eligibility without pretending the item has already been received
+- concurrent return requests cannot reserve the same delivered quantity twice
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox
@@ -269,6 +272,7 @@ tests/
   Switchyard.Ordering.Application.Tests/
   Switchyard.Payments.Domain.Tests/
   Switchyard.Payments.Application.Tests/
+  Switchyard.Returns.Domain.Tests/
   Switchyard.Architecture.Tests/
 infrastructure/
   local/
@@ -289,8 +293,8 @@ More projects are added only when they contain real implementation.
 - v0.3 - Inventory Reservation - complete
 - v0.4 - Payments and provider simulation - complete
 - v0.5 - Messaging, outbox/inbox and durable placement workflow - complete
-- v0.6 - Fulfilment and cancellation - in progress
-- v0.7 - Returns and refunds
+- v0.6 - Fulfilment and cancellation - complete
+- v0.7 - Returns and refunds - in progress
 - v0.8 - Customer and Operations product experience
 - v0.9 - Security, observability and production hardening
 - v1.0 - Public portfolio release

@@ -6,6 +6,7 @@ internal sealed class ReturnEligibilityRecord
     public string OrderNumber { get; set; } = string.Empty;
     public List<ReturnEligibilityLineRecord> Lines { get; } = [];
     public List<ShipmentDeliveryRecord> Deliveries { get; } = [];
+    public List<ReturnRequestRecord> ReturnRequests { get; } = [];
 }
 
 internal sealed class ReturnEligibilityLineRecord
@@ -13,6 +14,7 @@ internal sealed class ReturnEligibilityLineRecord
     public Guid OrderId { get; set; }
     public Guid OrderLineId { get; set; }
     public int DeliveredQuantity { get; set; }
+    public int AuthorisedReturnQuantity { get; set; }
     public int ReturnedQuantity { get; set; }
     public ReturnEligibilityRecord Eligibility { get; set; } = null!;
 }
@@ -33,6 +35,25 @@ internal sealed class ShipmentDeliveryLineRecord
     public Guid OrderLineId { get; set; }
     public int Quantity { get; set; }
     public ShipmentDeliveryRecord Delivery { get; set; } = null!;
+}
+
+internal sealed class ReturnRequestRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid ReturnRequestId { get; set; }
+    public DateTimeOffset RequestedAtUtc { get; set; }
+    public int Status { get; set; }
+    public ReturnEligibilityRecord Eligibility { get; set; } = null!;
+    public List<ReturnRequestLineRecord> Lines { get; } = [];
+}
+
+internal sealed class ReturnRequestLineRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid ReturnRequestId { get; set; }
+    public Guid OrderLineId { get; set; }
+    public int Quantity { get; set; }
+    public ReturnRequestRecord ReturnRequest { get; set; } = null!;
 }
 
 internal sealed class ReturnsInboxMessageRecord
