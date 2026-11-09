@@ -30,7 +30,7 @@
                     "Properties": {
                       "FilterType": "Sql",
                       "SqlFilter": {
-                        "SqlExpression": "sys.label LIKE 'inventory.event.%' OR sys.label LIKE 'payments.event.%'"
+                        "SqlExpression": "sys.label LIKE 'inventory.event.%' OR sys.label LIKE 'payments.event.authori%'"
                       }
                     }
                   }
@@ -122,7 +122,7 @@
                     "Properties": {
                       "FilterType": "Sql",
                       "SqlFilter": {
-                        "SqlExpression": "sys.label = 'ordering.event.confirmed.v1'"
+                        "SqlExpression": "sys.label = 'ordering.event.confirmed.v1' OR sys.label LIKE 'payments.event.captur%'"
                       }
                     }
                   }

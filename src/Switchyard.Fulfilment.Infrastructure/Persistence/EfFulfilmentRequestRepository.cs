@@ -58,7 +58,10 @@ public sealed class EfFulfilmentRequestRepository :
                 Status = request.Status,
                 ConfirmedAtUtc = request.ConfirmedAtUtc,
                 PaymentCaptureRequestId = request.PaymentCaptureRequestId,
-                PaymentCaptureRequestedAtUtc = request.PaymentCaptureRequestedAtUtc
+                PaymentCaptureRequestedAtUtc = request.PaymentCaptureRequestedAtUtc,
+                PaymentCaptureStatus = request.PaymentCaptureStatus,
+                PaymentCaptureProviderReference = request.PaymentCaptureProviderReference,
+                PaymentCaptureResolvedAtUtc = request.PaymentCaptureResolvedAtUtc
             };
 
         for (var position = 0;
@@ -170,6 +173,12 @@ public sealed class EfFulfilmentRequestRepository :
             request.PaymentCaptureRequestId;
         record.PaymentCaptureRequestedAtUtc =
             request.PaymentCaptureRequestedAtUtc;
+        record.PaymentCaptureStatus =
+            request.PaymentCaptureStatus;
+        record.PaymentCaptureProviderReference =
+            request.PaymentCaptureProviderReference;
+        record.PaymentCaptureResolvedAtUtc =
+            request.PaymentCaptureResolvedAtUtc;
 
         foreach (var line in request.Lines)
         {
@@ -360,7 +369,10 @@ public sealed class EfFulfilmentRequestRepository :
                               shipment.CreatedAtUtc,
                               shipment.DispatchedAtUtc)),
             record.PaymentCaptureRequestId,
-            record.PaymentCaptureRequestedAtUtc);
+            record.PaymentCaptureRequestedAtUtc,
+            record.PaymentCaptureStatus,
+            record.PaymentCaptureProviderReference,
+            record.PaymentCaptureResolvedAtUtc);
 
     private sealed class EfFulfilmentRequestTransaction :
         IFulfilmentRequestTransaction

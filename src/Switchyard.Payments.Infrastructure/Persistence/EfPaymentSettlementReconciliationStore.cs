@@ -11,13 +11,17 @@ public sealed class EfPaymentSettlementReconciliationStore :
 {
     private readonly PaymentsDbContext _dbContext;
 
-    public EfPaymentSettlementReconciliationStore(PaymentsDbContext dbContext)
+    public EfPaymentSettlementReconciliationStore(
+        PaymentsDbContext dbContext)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _dbContext =
+            dbContext ??
+            throw new ArgumentNullException(nameof(dbContext));
     }
 
     public async Task<PaymentSettlementReconciliationState?> GetAsync(
-        Guid requestId, CancellationToken cancellationToken)
+        Guid requestId,
+        CancellationToken cancellationToken)
     {
         if (requestId == Guid.Empty)
         {
@@ -26,20 +30,22 @@ public sealed class EfPaymentSettlementReconciliationStore :
                 nameof(requestId));
         }
 
-        var existing = await (
-            from settlement in _dbContext.SettlementAttempts.AsNoTracking()
-            join intent in _dbContext.PaymentIntents.AsNoTracking()
-                on settlement.PaymentId equals intent.PaymentId
-            join authorisation in _dbContext.AuthorisationAttempts.AsNoTracking()
-                on settlement.PaymentId equals authorisation.PaymentId
-            where settlement.RequestId == requestId
-            select new
-            {
-                Settlement = settlement,
-                Intent = intent,
-                Authorisation = authorisation
-            })
-            .SingleOrDefaultAsync(cancellationToken);
+        var existing =
+            await (
+                from settlement in _dbContext.SettlementAttempts.AsNoTracking()
+                join intent in _dbContext.PaymentIntents.AsNoTracking()
+                    on settlement.PaymentId equals intent.PaymentId
+                join authorisation in _dbContext.AuthorisationAttempts.AsNoTracking()
+                    on settlement.PaymentId equals authorisation.PaymentId
+                where settlement.RequestId == requestId
+                select new
+                {
+                    Settlement = settlement,
+                    Intent = intent,
+                    Authorisation = authorisation
+                })
+                .SingleOrDefaultAsync(
+                    cancellationToken);
 
         return existing is null
             ? null
@@ -49,11 +55,101 @@ public sealed class EfPaymentSettlementReconciliationStore :
                 existing.Settlement);
     }
 
-    public async Task<PaymentSettlementReconciliationDecision> ApplyAsync(
-        PaymentSettlementReconciliation reconciliation,
+    public async Task<Guid[]> GetDueCaptureRequestIdsAsync(
+        int batchSize,
+        DateTimeOffset nowUtc,
+        TimeSpan retryDelay,
+        int maxAttempts,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(reconciliation);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            batchSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            maxAttempts);
+
+        if (retryDelay < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(retryDelay),
+                "Settlement reconciliation retry delay cannot be negative.");
+        }
+
+        var dueBeforeUtc =
+            nowUtc
+                .ToUniversalTime()
+                .Subtract(
+                    retryDelay);
+
+        return await _dbContext.SettlementAttempts
+            .AsNoTracking()
+            .Where(
+                attempt =>
+                    attempt.Action ==
+                        PaymentSettlementAction.Capture &&
+                    attempt.Status ==
+                        PaymentSettlementStatus.Indeterminate &&
+                    attempt.ReconciliationAttemptCount <
+                        maxAttempts &&
+                    attempt.ResolvedAtUtc.HasValue &&
+                    (
+                        attempt.LastReconciledAtUtc.HasValue
+                            ? attempt.LastReconciledAtUtc.Value <=
+                                dueBeforeUtc
+                            : attempt.ResolvedAtUtc.Value <=
+                                dueBeforeUtc
+                    ))
+            .OrderBy(
+                attempt =>
+                    attempt.LastReconciledAtUtc ??
+                    attempt.ResolvedAtUtc ??
+                    attempt.RequestedAtUtc)
+            .ThenBy(
+                attempt =>
+                    attempt.RequestId)
+            .Select(
+                attempt =>
+                    attempt.RequestId)
+            .Take(
+                batchSize)
+            .ToArrayAsync(
+                cancellationToken);
+    }
+
+    public Task<PaymentSettlementReconciliationDecision> ApplyAsync(
+        PaymentSettlementReconciliation reconciliation,
+        CancellationToken cancellationToken) =>
+        ApplyCoreAsync(
+            reconciliation,
+            onApplied: null,
+            cancellationToken);
+
+    public Task<PaymentSettlementReconciliationDecision> ApplyAtomicallyAsync(
+        PaymentSettlementReconciliation reconciliation,
+        Func<
+            PaymentSettlementReconciliationDecision,
+            CancellationToken,
+            Task> onApplied,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(
+            onApplied);
+
+        return ApplyCoreAsync(
+            reconciliation,
+            onApplied,
+            cancellationToken);
+    }
+
+    private async Task<PaymentSettlementReconciliationDecision> ApplyCoreAsync(
+        PaymentSettlementReconciliation reconciliation,
+        Func<
+            PaymentSettlementReconciliationDecision,
+            CancellationToken,
+            Task>? onApplied,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(
+            reconciliation);
 
         if (reconciliation.RequestId == Guid.Empty)
         {
@@ -62,8 +158,10 @@ public sealed class EfPaymentSettlementReconciliationStore :
                 nameof(reconciliation));
         }
 
-        if (!Enum.IsDefined(reconciliation.Status) ||
-            reconciliation.Status == PaymentSettlementStatus.Pending)
+        if (!Enum.IsDefined(
+                reconciliation.Status) ||
+            reconciliation.Status ==
+                PaymentSettlementStatus.Pending)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(reconciliation),
@@ -71,26 +169,40 @@ public sealed class EfPaymentSettlementReconciliationStore :
                 "Payment settlement reconciliation must contain a non-pending outcome.");
         }
 
-        if (reconciliation.Status == PaymentSettlementStatus.Succeeded &&
-            string.IsNullOrWhiteSpace(reconciliation.ProviderReference))
+        if (reconciliation.Status ==
+                PaymentSettlementStatus.Succeeded &&
+            string.IsNullOrWhiteSpace(
+                reconciliation.ProviderReference))
         {
             throw new ArgumentException(
                 "A successful payment settlement reconciliation requires a provider reference.",
                 nameof(reconciliation));
         }
 
-        await using var transaction =
-            await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+        if (reconciliation.ExpectedAttemptCount is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(reconciliation),
+                "Expected settlement reconciliation attempt count cannot be negative.");
+        }
 
-        var attempt = await _dbContext.SettlementAttempts
-                                      .FromSqlInterpolated(
-                                          $"""
-                                          SELECT *
-                                          FROM payments.settlement_attempts
-                                          WHERE request_id = {reconciliation.RequestId}
-                                          FOR UPDATE
-                                          """)
-                                      .SingleOrDefaultAsync(cancellationToken);
+        _dbContext.ChangeTracker.Clear();
+
+        await using var transaction =
+            await _dbContext.Database.BeginTransactionAsync(
+                cancellationToken);
+
+        var attempt =
+            await _dbContext.SettlementAttempts
+                .FromSqlInterpolated(
+                    $"""
+                    SELECT *
+                    FROM payments.settlement_attempts
+                    WHERE request_id = {reconciliation.RequestId}
+                    FOR UPDATE
+                    """)
+                .SingleOrDefaultAsync(
+                    cancellationToken);
 
         if (attempt is null)
         {
@@ -98,59 +210,128 @@ public sealed class EfPaymentSettlementReconciliationStore :
                 reconciliation.RequestId);
         }
 
-        var intent = await _dbContext.PaymentIntents
-                                     .SingleAsync(
-                                         record => record.PaymentId == attempt.PaymentId,
-                                         cancellationToken);
-        var authorisation = await _dbContext.AuthorisationAttempts
-                                                .SingleAsync(
-                                                    record => record.PaymentId == attempt.PaymentId,
-                                                    cancellationToken);
+        var intent =
+            await _dbContext.PaymentIntents
+                .SingleAsync(
+                    record =>
+                        record.PaymentId ==
+                        attempt.PaymentId,
+                    cancellationToken);
 
-        EnsureConsistent(authorisation);
+        var authorisation =
+            await _dbContext.AuthorisationAttempts
+                .SingleAsync(
+                    record =>
+                        record.PaymentId ==
+                        attempt.PaymentId,
+                    cancellationToken);
 
-        if (attempt.Status == PaymentSettlementStatus.Pending)
+        EnsureConsistent(
+            authorisation);
+
+        if (attempt.Status ==
+            PaymentSettlementStatus.Pending)
         {
             throw new InvalidOperationException(
                 "Pending payment settlement must be retried through settlement execution before reconciliation.");
         }
 
-        if (reconciliation.ReconciledAtUtc < attempt.RequestedAtUtc)
+        if (reconciliation.ExpectedAttemptCount.HasValue &&
+            (
+                attempt.Status !=
+                    PaymentSettlementStatus.Indeterminate ||
+                attempt.ReconciliationAttemptCount !=
+                    reconciliation.ExpectedAttemptCount.Value
+            ))
+        {
+            var replay =
+                new PaymentSettlementReconciliationDecision(
+                    ToState(
+                        intent,
+                        authorisation,
+                        attempt),
+                    Applied: false);
+
+            await transaction.CommitAsync(
+                cancellationToken);
+
+            _dbContext.ChangeTracker.Clear();
+
+            return replay;
+        }
+
+        if (reconciliation.ReconciledAtUtc <
+            attempt.RequestedAtUtc)
         {
             throw new ArgumentOutOfRangeException(
                 nameof(reconciliation),
                 "Payment settlement reconciliation cannot occur before the settlement request.");
         }
 
-        RecordReconciliationAttempt(attempt, reconciliation.ReconciledAtUtc);
+        RecordReconciliationAttempt(
+            attempt,
+            reconciliation.ReconciledAtUtc);
 
-        if (attempt.Status != PaymentSettlementStatus.Indeterminate)
+        if (attempt.Status !=
+            PaymentSettlementStatus.Indeterminate)
         {
-            await _dbContext.SaveChangesAsync(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            await _dbContext.SaveChangesAsync(
+                cancellationToken);
+            await transaction.CommitAsync(
+                cancellationToken);
 
-            return new PaymentSettlementReconciliationDecision(
-                ToState(intent, authorisation, attempt),
-                Applied: false);
+            var replay =
+                new PaymentSettlementReconciliationDecision(
+                    ToState(
+                        intent,
+                        authorisation,
+                        attempt),
+                    Applied: false);
+
+            _dbContext.ChangeTracker.Clear();
+
+            return replay;
         }
 
-        if (!string.IsNullOrWhiteSpace(reconciliation.ProviderReference))
+        if (!string.IsNullOrWhiteSpace(
+                reconciliation.ProviderReference))
         {
-            attempt.ProviderReference = reconciliation.ProviderReference.Trim();
+            attempt.ProviderReference =
+                reconciliation.ProviderReference.Trim();
         }
 
-        if (reconciliation.Status != PaymentSettlementStatus.Indeterminate)
+        if (reconciliation.Status !=
+            PaymentSettlementStatus.Indeterminate)
         {
-            attempt.Status = reconciliation.Status;
-            attempt.ResolvedAtUtc = reconciliation.ReconciledAtUtc;
+            attempt.Status =
+                reconciliation.Status;
+            attempt.ResolvedAtUtc =
+                reconciliation.ReconciledAtUtc;
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+        var decision =
+            new PaymentSettlementReconciliationDecision(
+                ToState(
+                    intent,
+                    authorisation,
+                    attempt),
+                Applied: true);
 
-        return new PaymentSettlementReconciliationDecision(
-            ToState(intent, authorisation, attempt),
-            Applied: true);
+        if (onApplied is not null)
+        {
+            await onApplied(
+                decision,
+                cancellationToken);
+        }
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
+        await transaction.CommitAsync(
+            cancellationToken);
+
+        _dbContext.ChangeTracker.Clear();
+
+        return decision;
     }
 
     private static void RecordReconciliationAttempt(
@@ -160,9 +341,11 @@ public sealed class EfPaymentSettlementReconciliationStore :
         attempt.ReconciliationAttemptCount++;
 
         if (attempt.LastReconciledAtUtc is null ||
-            reconciledAtUtc > attempt.LastReconciledAtUtc)
+            reconciledAtUtc >
+                attempt.LastReconciledAtUtc)
         {
-            attempt.LastReconciledAtUtc = reconciledAtUtc;
+            attempt.LastReconciledAtUtc =
+                reconciledAtUtc;
         }
     }
 
@@ -171,7 +354,8 @@ public sealed class EfPaymentSettlementReconciliationStore :
         PaymentAuthorisationAttemptRecord authorisation,
         PaymentSettlementAttemptRecord attempt)
     {
-        EnsureConsistent(authorisation);
+        EnsureConsistent(
+            authorisation);
 
         return new PaymentSettlementReconciliationState(
             attempt.RequestId,
@@ -193,8 +377,10 @@ public sealed class EfPaymentSettlementReconciliationStore :
     private static void EnsureConsistent(
         PaymentAuthorisationAttemptRecord authorisation)
     {
-        if (authorisation.Status != PaymentAuthorisationStatus.Authorised ||
-            string.IsNullOrWhiteSpace(authorisation.ProviderReference))
+        if (authorisation.Status !=
+                PaymentAuthorisationStatus.Authorised ||
+            string.IsNullOrWhiteSpace(
+                authorisation.ProviderReference))
         {
             throw new InvalidOperationException(
                 "A payment settlement exists without a definite successful authorisation.");

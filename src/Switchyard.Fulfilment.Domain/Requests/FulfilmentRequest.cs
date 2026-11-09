@@ -18,7 +18,10 @@ public sealed class FulfilmentRequest
         DateTimeOffset confirmedAtUtc,
         FulfilmentRequestStatus status,
         Guid? paymentCaptureRequestId,
-        DateTimeOffset? paymentCaptureRequestedAtUtc)
+        DateTimeOffset? paymentCaptureRequestedAtUtc,
+        FulfilmentPaymentCaptureStatus paymentCaptureStatus,
+        string? paymentCaptureProviderReference,
+        DateTimeOffset? paymentCaptureResolvedAtUtc)
     {
         OrderId = orderId;
         PaymentId = paymentId;
@@ -31,6 +34,9 @@ public sealed class FulfilmentRequest
         Status = status;
         PaymentCaptureRequestId = paymentCaptureRequestId;
         PaymentCaptureRequestedAtUtc = paymentCaptureRequestedAtUtc?.ToUniversalTime();
+        PaymentCaptureStatus = paymentCaptureStatus;
+        PaymentCaptureProviderReference = paymentCaptureProviderReference;
+        PaymentCaptureResolvedAtUtc = paymentCaptureResolvedAtUtc?.ToUniversalTime();
     }
 
     public Guid OrderId { get; }
@@ -55,6 +61,12 @@ public sealed class FulfilmentRequest
 
     public DateTimeOffset? PaymentCaptureRequestedAtUtc { get; private set; }
 
+    public FulfilmentPaymentCaptureStatus PaymentCaptureStatus { get; private set; }
+
+    public string? PaymentCaptureProviderReference { get; private set; }
+
+    public DateTimeOffset? PaymentCaptureResolvedAtUtc { get; private set; }
+
     public static FulfilmentRequest Create(
         Guid orderId,
         Guid paymentId,
@@ -72,6 +84,9 @@ public sealed class FulfilmentRequest
             [],
             [],
             null,
+            null,
+            FulfilmentPaymentCaptureStatus.NotRequested,
+            null,
             null);
 
     public static FulfilmentRequest Rehydrate(
@@ -85,7 +100,11 @@ public sealed class FulfilmentRequest
         IEnumerable<FulfilmentCancellation>? cancellations = null,
         IEnumerable<FulfilmentShipment>? shipments = null,
         Guid? paymentCaptureRequestId = null,
-        DateTimeOffset? paymentCaptureRequestedAtUtc = null)
+        DateTimeOffset? paymentCaptureRequestedAtUtc = null,
+        FulfilmentPaymentCaptureStatus paymentCaptureStatus =
+            FulfilmentPaymentCaptureStatus.NotRequested,
+        string? paymentCaptureProviderReference = null,
+        DateTimeOffset? paymentCaptureResolvedAtUtc = null)
     {
         if (orderId == Guid.Empty)
         {
@@ -205,6 +224,84 @@ public sealed class FulfilmentRequest
                 nameof(paymentCaptureRequestId));
         }
 
+        if (!Enum.IsDefined(paymentCaptureStatus))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(paymentCaptureStatus),
+                paymentCaptureStatus,
+                "Unknown payment capture status.");
+        }
+
+        var normalizedCaptureProviderReference =
+            string.IsNullOrWhiteSpace(paymentCaptureProviderReference)
+                ? null
+                : paymentCaptureProviderReference.Trim();
+
+        if (normalizedCaptureProviderReference?.Length > 100)
+        {
+            throw new ArgumentException(
+                "Payment capture provider reference cannot exceed 100 characters.",
+                nameof(paymentCaptureProviderReference));
+        }
+
+        if (!paymentCaptureRequestId.HasValue)
+        {
+            if (paymentCaptureStatus != FulfilmentPaymentCaptureStatus.NotRequested ||
+                normalizedCaptureProviderReference is not null ||
+                paymentCaptureResolvedAtUtc.HasValue)
+            {
+                throw new ArgumentException(
+                    "Payment capture outcome cannot exist before a capture request.",
+                    nameof(paymentCaptureStatus));
+            }
+        }
+        else
+        {
+            if (paymentCaptureStatus == FulfilmentPaymentCaptureStatus.NotRequested)
+            {
+                throw new ArgumentException(
+                    "A recorded payment capture request requires a capture status.",
+                    nameof(paymentCaptureStatus));
+            }
+
+            if (paymentCaptureStatus == FulfilmentPaymentCaptureStatus.Pending &&
+                (normalizedCaptureProviderReference is not null ||
+                 paymentCaptureResolvedAtUtc.HasValue))
+            {
+                throw new ArgumentException(
+                    "Pending payment capture cannot contain a resolved outcome.",
+                    nameof(paymentCaptureStatus));
+            }
+
+            if (paymentCaptureStatus == FulfilmentPaymentCaptureStatus.Captured &&
+                normalizedCaptureProviderReference is null)
+            {
+                throw new ArgumentException(
+                    "Captured payment requires a provider reference.",
+                    nameof(paymentCaptureProviderReference));
+            }
+
+            if ((paymentCaptureStatus is
+                    FulfilmentPaymentCaptureStatus.Captured or
+                    FulfilmentPaymentCaptureStatus.Indeterminate or
+                    FulfilmentPaymentCaptureStatus.NotApplied) &&
+                !paymentCaptureResolvedAtUtc.HasValue)
+            {
+                throw new ArgumentException(
+                    "Resolved payment capture status requires an outcome time.",
+                    nameof(paymentCaptureResolvedAtUtc));
+            }
+
+            if (paymentCaptureResolvedAtUtc.HasValue &&
+                paymentCaptureResolvedAtUtc.Value.ToUniversalTime() <
+                    paymentCaptureRequestedAtUtc!.Value.ToUniversalTime())
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(paymentCaptureResolvedAtUtc),
+                    "Payment capture outcome cannot predate the capture request.");
+            }
+        }
+
         var lineMap =
             materializedLines.ToDictionary(
                 line => line.OrderLineId);
@@ -316,7 +413,10 @@ public sealed class FulfilmentRequest
             confirmedAtUtc,
             status,
             paymentCaptureRequestId,
-            paymentCaptureRequestedAtUtc);
+            paymentCaptureRequestedAtUtc,
+            paymentCaptureStatus,
+            normalizedCaptureProviderReference,
+            paymentCaptureResolvedAtUtc);
     }
 
     public bool CreateUnit(
@@ -654,11 +754,128 @@ public sealed class FulfilmentRequest
 
         PaymentCaptureRequestId = captureRequestId;
         PaymentCaptureRequestedAtUtc = dispatchedAtUtc.ToUniversalTime();
+        PaymentCaptureStatus = FulfilmentPaymentCaptureStatus.Pending;
+        PaymentCaptureProviderReference = null;
+        PaymentCaptureResolvedAtUtc = null;
 
         return new FulfilmentDispatchDecision(
             Replayed: false,
             CaptureRequired: true,
             captureRequestId);
+    }
+
+    public bool ApplyPaymentCaptureOutcome(
+        Guid captureRequestId,
+        Guid paymentId,
+        FulfilmentPaymentCaptureStatus status,
+        string? providerReference,
+        DateTimeOffset resolvedAtUtc)
+    {
+        if (captureRequestId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment capture request ID cannot be empty.",
+                nameof(captureRequestId));
+        }
+
+        if (paymentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Payment ID cannot be empty.",
+                nameof(paymentId));
+        }
+
+        if (status != FulfilmentPaymentCaptureStatus.Captured &&
+            status != FulfilmentPaymentCaptureStatus.Indeterminate &&
+            status != FulfilmentPaymentCaptureStatus.NotApplied)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(status),
+                status,
+                "Payment capture outcome must be captured, indeterminate or not applied.");
+        }
+
+        if (PaymentCaptureRequestId != captureRequestId ||
+            PaymentId != paymentId)
+        {
+            throw new FulfilmentPaymentCaptureConflictException(
+                captureRequestId);
+        }
+
+        var requestedAtUtc =
+            PaymentCaptureRequestedAtUtc ??
+            throw new InvalidOperationException(
+                "Payment capture request time is missing.");
+
+        var normalizedResolvedAtUtc =
+            resolvedAtUtc.ToUniversalTime();
+
+        if (normalizedResolvedAtUtc <
+            requestedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(resolvedAtUtc),
+                "Payment capture outcome cannot predate the capture request.");
+        }
+
+        var normalizedProviderReference =
+            string.IsNullOrWhiteSpace(providerReference)
+                ? null
+                : providerReference.Trim();
+
+        if (normalizedProviderReference?.Length > 100)
+        {
+            throw new ArgumentException(
+                "Payment capture provider reference cannot exceed 100 characters.",
+                nameof(providerReference));
+        }
+
+        if (status == FulfilmentPaymentCaptureStatus.Captured &&
+            normalizedProviderReference is null)
+        {
+            throw new ArgumentException(
+                "Captured payment requires a provider reference.",
+                nameof(providerReference));
+        }
+
+        if (PaymentCaptureStatus is
+                FulfilmentPaymentCaptureStatus.Captured or
+                FulfilmentPaymentCaptureStatus.NotApplied)
+        {
+            if (PaymentCaptureStatus == status &&
+                string.Equals(
+                    PaymentCaptureProviderReference,
+                    normalizedProviderReference,
+                    StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            throw new FulfilmentPaymentCaptureConflictException(
+                captureRequestId);
+        }
+
+        if (PaymentCaptureStatus == status &&
+            string.Equals(
+                PaymentCaptureProviderReference,
+                normalizedProviderReference,
+                StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (PaymentCaptureStatus != FulfilmentPaymentCaptureStatus.Pending &&
+            PaymentCaptureStatus != FulfilmentPaymentCaptureStatus.Indeterminate)
+        {
+            throw new FulfilmentPaymentCaptureConflictException(
+                captureRequestId);
+        }
+
+        PaymentCaptureStatus = status;
+        PaymentCaptureProviderReference = normalizedProviderReference;
+        PaymentCaptureResolvedAtUtc = normalizedResolvedAtUtc;
+
+        return true;
     }
 
     private static FulfilmentRequestStatus CalculateStatus(
@@ -684,6 +901,16 @@ public sealed class FulfilmentRequest
         }
 
         return FulfilmentRequestStatus.PartiallyPrepared;
+    }
+}
+
+public sealed class FulfilmentPaymentCaptureConflictException : Exception
+{
+    public FulfilmentPaymentCaptureConflictException(
+        Guid captureRequestId)
+        : base(
+            $"Payment capture request '{captureRequestId}' conflicts with the persisted fulfilment payment state.")
+    {
     }
 }
 

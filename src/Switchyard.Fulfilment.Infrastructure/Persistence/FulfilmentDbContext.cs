@@ -59,6 +59,18 @@ public sealed class FulfilmentDbContext : DbContext
                 table.HasCheckConstraint(
                     "ck_fulfilment_request_status",
                     "status BETWEEN 0 AND 2");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_capture_status",
+                    "payment_capture_status BETWEEN 0 AND 4");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_capture_shape",
+                    "(payment_capture_request_id IS NULL AND payment_capture_requested_at_utc IS NULL AND payment_capture_status = 0 AND payment_capture_provider_reference IS NULL AND payment_capture_resolved_at_utc IS NULL) OR " +
+                    "(payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status = 1 AND payment_capture_provider_reference IS NULL AND payment_capture_resolved_at_utc IS NULL) OR " +
+                    "(payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status = 2 AND payment_capture_provider_reference IS NOT NULL AND payment_capture_resolved_at_utc IS NOT NULL) OR " +
+                    "(payment_capture_request_id IS NOT NULL AND payment_capture_requested_at_utc IS NOT NULL AND payment_capture_status IN (3, 4) AND payment_capture_resolved_at_utc IS NOT NULL)");
+                table.HasCheckConstraint(
+                    "ck_fulfilment_capture_resolved_time",
+                    "payment_capture_resolved_at_utc IS NULL OR payment_capture_resolved_at_utc >= payment_capture_requested_at_utc");
             });
 
         request.HasKey(record => record.OrderId)
@@ -88,6 +100,17 @@ public sealed class FulfilmentDbContext : DbContext
 
         request.Property(record => record.PaymentCaptureRequestedAtUtc)
                .HasColumnName("payment_capture_requested_at_utc");
+
+        request.Property(record => record.PaymentCaptureStatus)
+               .HasColumnName("payment_capture_status")
+               .HasConversion<int>();
+
+        request.Property(record => record.PaymentCaptureProviderReference)
+               .HasColumnName("payment_capture_provider_reference")
+               .HasMaxLength(100);
+
+        request.Property(record => record.PaymentCaptureResolvedAtUtc)
+               .HasColumnName("payment_capture_resolved_at_utc");
 
         request.HasIndex(record => record.OrderNumber)
                .IsUnique()

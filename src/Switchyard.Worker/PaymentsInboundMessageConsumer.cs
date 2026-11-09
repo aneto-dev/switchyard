@@ -188,6 +188,8 @@ public sealed class PaymentsInboundMessageConsumer :
             throw new InvalidOperationException(
                 "A claimed Payments capture message requires a processing token.");
 
+        ExecutePaymentSettlementResult result;
+
         await using (var settlementDbContext =
             await _dbContextFactory.CreateDbContextAsync(
                 cancellationToken))
@@ -198,8 +200,6 @@ public sealed class PaymentsInboundMessageConsumer :
                         settlementDbContext),
                     _settlementProvider,
                     _timeProvider);
-
-            ExecutePaymentSettlementResult result;
 
             try
             {
@@ -234,6 +234,11 @@ public sealed class PaymentsInboundMessageConsumer :
             }
         }
 
+        var outgoing =
+            BuildCaptureOutcome(
+                result,
+                message);
+
         await using var completionDbContext =
             await _dbContextFactory.CreateDbContextAsync(
                 cancellationToken);
@@ -247,8 +252,90 @@ public sealed class PaymentsInboundMessageConsumer :
             "payments-capture",
             message,
             processingToken,
-            _ => Task.CompletedTask,
+            async token =>
+            {
+                var outbox =
+                    new EfPaymentsOutboxStore(
+                        completionDbContext);
+
+                await outbox.AddAsync(
+                    outgoing,
+                    token);
+            },
             cancellationToken);
+    }
+
+    private static IntegrationMessageEnvelope BuildCaptureOutcome(
+        ExecutePaymentSettlementResult result,
+        IntegrationMessageEnvelope message)
+    {
+        if (result.Action !=
+            PaymentSettlementAction.Capture)
+        {
+            throw new InvalidOperationException(
+                "Capture messaging requires a capture settlement result.");
+        }
+
+        var resolvedAtUtc =
+            result.ResolvedAtUtc ??
+            throw new InvalidOperationException(
+                "A terminal payment capture result requires a resolved time.");
+
+        return result.Status switch
+        {
+            PaymentSettlementStatus.Succeeded
+                when !string.IsNullOrWhiteSpace(result.ProviderReference) =>
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    PaymentCapturedV1.MessageType,
+                    JsonSerializer.Serialize(
+                        new PaymentCapturedV1(
+                            result.RequestId,
+                            result.OrderId,
+                            result.PaymentId,
+                            result.ProviderReference!,
+                            resolvedAtUtc),
+                        JsonSerializerOptions.Web),
+                    resolvedAtUtc,
+                    result.OrderId,
+                    message.MessageId),
+
+            PaymentSettlementStatus.Indeterminate =>
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    PaymentCaptureIndeterminateV1.MessageType,
+                    JsonSerializer.Serialize(
+                        new PaymentCaptureIndeterminateV1(
+                            result.RequestId,
+                            result.OrderId,
+                            result.PaymentId,
+                            result.ProviderReference,
+                            resolvedAtUtc),
+                        JsonSerializerOptions.Web),
+                    resolvedAtUtc,
+                    result.OrderId,
+                    message.MessageId),
+
+            PaymentSettlementStatus.NotApplied =>
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    PaymentCaptureNotAppliedV1.MessageType,
+                    JsonSerializer.Serialize(
+                        new PaymentCaptureNotAppliedV1(
+                            result.RequestId,
+                            result.OrderId,
+                            result.PaymentId,
+                            result.ProviderReference,
+                            resolvedAtUtc),
+                        JsonSerializerOptions.Web),
+                    resolvedAtUtc,
+                    result.OrderId,
+                    message.MessageId),
+
+            _ =>
+                throw new InvalidOperationException(
+                    "Payment capture returned an invalid messaging outcome.")
+        };
     }
 
     private async Task<PaymentsInboxClaimResult> ClaimWhenAvailableAsync(

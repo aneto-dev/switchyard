@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Switchyard.Fulfilment.Domain.Requests;
 using Switchyard.Fulfilment.Infrastructure.Persistence;
 using Switchyard.IntegrationContracts.Ordering;
+using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Worker;
 using Testcontainers.PostgreSql;
@@ -147,6 +149,185 @@ public sealed class FulfilmentInboundMessageConsumerTests
     }
 
     [Fact]
+    public async Task CapturedPaymentUpdatesFulfilmentPaymentStateIdempotently()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var confirmedAtUtc =
+            new DateTimeOffset(
+                2026,
+                11,
+                5,
+                14,
+                30,
+                0,
+                TimeSpan.Zero);
+
+        var orderId =
+            Guid.NewGuid();
+        var paymentId =
+            Guid.NewGuid();
+        var captureRequestId =
+            Guid.NewGuid();
+
+        var confirmed =
+            new OrderConfirmedV1(
+                orderId,
+                paymentId,
+                "SW-000003",
+                1299.99m,
+                "GBP",
+                confirmedAtUtc,
+                new[]
+                {
+                    new OrderConfirmedLineV1(
+                        Guid.NewGuid(),
+                        "BIKE-003",
+                        "Race Bike",
+                        1)
+                });
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                confirmedAtUtc.AddMinutes(2));
+
+        await consumer.ConsumeAsync(
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                OrderConfirmedV1.MessageType,
+                JsonSerializer.Serialize(
+                    confirmed,
+                    JsonSerializerOptions.Web),
+                confirmedAtUtc,
+                orderId,
+                Guid.NewGuid()),
+            cancellationToken);
+
+        var captureRequestedAtUtc =
+            confirmedAtUtc.AddMinutes(1);
+
+        await using (var connection =
+            new NpgsqlConnection(
+                connectionString))
+        {
+            await connection.OpenAsync(
+                cancellationToken);
+
+            await using var command =
+                new NpgsqlCommand(
+                    """
+                    UPDATE fulfilment.requests
+                    SET payment_capture_request_id = @request_id,
+                        payment_capture_requested_at_utc = @requested_at,
+                        payment_capture_status = @status
+                    WHERE order_id = @order_id;
+                    """,
+                    connection);
+
+            command.Parameters.AddWithValue(
+                "request_id",
+                captureRequestId);
+            command.Parameters.AddWithValue(
+                "requested_at",
+                captureRequestedAtUtc);
+            command.Parameters.AddWithValue(
+                "status",
+                (int)FulfilmentPaymentCaptureStatus.Pending);
+            command.Parameters.AddWithValue(
+                "order_id",
+                orderId);
+
+            Assert.Equal(
+                1,
+                await command.ExecuteNonQueryAsync(
+                    cancellationToken));
+        }
+
+        var capturedAtUtc =
+            confirmedAtUtc.AddMinutes(2);
+
+        var captured =
+            new PaymentCapturedV1(
+                captureRequestId,
+                orderId,
+                paymentId,
+                "provider-capture-1",
+                capturedAtUtc);
+
+        var envelope =
+            new IntegrationMessageEnvelope(
+                Guid.NewGuid(),
+                PaymentCapturedV1.MessageType,
+                JsonSerializer.Serialize(
+                    captured,
+                    JsonSerializerOptions.Web),
+                capturedAtUtc,
+                orderId,
+                Guid.NewGuid());
+
+        await consumer.ConsumeAsync(
+            envelope,
+            cancellationToken);
+        await consumer.ConsumeAsync(
+            envelope,
+            cancellationToken);
+
+        await using var verifyConnection =
+            new NpgsqlConnection(
+                connectionString);
+
+        await verifyConnection.OpenAsync(
+            cancellationToken);
+
+        await using var verify =
+            new NpgsqlCommand(
+                """
+                SELECT
+                    payment_capture_status,
+                    payment_capture_provider_reference,
+                    payment_capture_resolved_at_utc
+                FROM fulfilment.requests
+                WHERE order_id = @order_id;
+                """,
+                verifyConnection);
+
+        verify.Parameters.AddWithValue(
+            "order_id",
+            orderId);
+
+        await using var reader =
+            await verify.ExecuteReaderAsync(
+                cancellationToken);
+
+        Assert.True(
+            await reader.ReadAsync(
+                cancellationToken));
+
+        Assert.Equal(
+            (int)FulfilmentPaymentCaptureStatus.Captured,
+            reader.GetInt32(0));
+        Assert.Equal(
+            "provider-capture-1",
+            reader.GetString(1));
+        Assert.Equal(
+            capturedAtUtc,
+            reader.GetFieldValue<DateTimeOffset>(2));
+    }
+
+    [Fact]
     public async Task SameMessageIdWithDifferentConfirmedOrderPayloadIsRejected()
     {
         var cancellationToken =
@@ -269,7 +450,10 @@ public sealed class FulfilmentInboundMessageConsumerTests
                 now),
             new IFulfilmentInboundMessageRoute[]
             {
-                new OrderConfirmedFulfilmentInboundMessageRoute()
+                new OrderConfirmedFulfilmentInboundMessageRoute(),
+                new PaymentCapturedFulfilmentInboundMessageRoute(),
+                new PaymentCaptureIndeterminateFulfilmentInboundMessageRoute(),
+                new PaymentCaptureNotAppliedFulfilmentInboundMessageRoute()
             });
     }
 
