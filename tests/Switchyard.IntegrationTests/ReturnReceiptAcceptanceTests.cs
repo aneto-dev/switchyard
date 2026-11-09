@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Switchyard.IntegrationContracts.Fulfilment;
 using Switchyard.Messaging;
+using Switchyard.Returns.Application.Commercial;
 using Switchyard.Returns.Application.Receipts;
 using Switchyard.Returns.Application.Requests;
 using Switchyard.Returns.Domain.Eligibility;
@@ -49,6 +50,13 @@ public sealed class ReturnReceiptAcceptanceTests
             orderId,
             orderLineId,
             quantity: 2,
+            cancellationToken);
+
+        await ProjectCommercialAsync(
+            connectionString,
+            orderId,
+            orderLineId,
+            unitPriceAmount: 75m,
             cancellationToken);
 
         await AuthoriseAsync(
@@ -139,7 +147,19 @@ public sealed class ReturnReceiptAcceptanceTests
                         FROM returns.return_receipts
                         WHERE order_id = @order_id
                           AND return_request_id = @return_request_id
-                    ) AS receipt_count
+                    ) AS receipt_count,
+                    (
+                        SELECT COUNT(*)
+                        FROM returns.outbox_messages
+                        WHERE correlation_id = @order_id
+                          AND message_type = 'payments.command.refund.v1'
+                    ) AS refund_command_count,
+                    (
+                        SELECT SUM((payload ->> 'amount')::numeric)
+                        FROM returns.outbox_messages
+                        WHERE correlation_id = @order_id
+                          AND message_type = 'payments.command.refund.v1'
+                    ) AS refund_total
                 FROM returns.return_eligibility_lines
                 WHERE order_id = @order_id
                   AND order_line_id = @order_line_id;
@@ -174,6 +194,43 @@ public sealed class ReturnReceiptAcceptanceTests
             (int)ReturnRequestStatus.Received,
             reader.GetInt32(4));
         Assert.Equal(2L, reader.GetInt64(5));
+        Assert.Equal(2L, reader.GetInt64(6));
+        Assert.Equal(150m, reader.GetDecimal(7));
+    }
+
+    private static async Task ProjectCommercialAsync(
+        string connectionString,
+        Guid orderId,
+        Guid orderLineId,
+        decimal unitPriceAmount,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            CreateDbContext(
+                connectionString);
+
+        var repository =
+            new EfReturnCommercialSnapshotRepository(
+                dbContext);
+
+        await repository.ApplyAsync(
+            new ReturnCommercialSnapshot(
+                orderId,
+                Guid.NewGuid(),
+                "SW-RET-400",
+                unitPriceAmount * 2,
+                "GBP",
+                new DateTimeOffset(
+                    2026, 11, 9, 11, 55, 0, TimeSpan.Zero),
+                new[]
+                {
+                    new ReturnCommercialSnapshotLine(
+                        orderLineId,
+                        2,
+                        unitPriceAmount,
+                        "GBP")
+                }),
+            cancellationToken);
     }
 
     private static async Task ProjectDeliveryAsync(
@@ -277,6 +334,10 @@ public sealed class ReturnReceiptAcceptanceTests
         var handler =
             new ReceiveReturnHandler(
                 new EfReturnEligibilityRepository(
+                    dbContext),
+                new EfReturnCommercialSnapshotRepository(
+                    dbContext),
+                new EfReturnsOutboxStore(
                     dbContext),
                 new EfReturnsUnitOfWork(
                     dbContext));

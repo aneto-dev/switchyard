@@ -4,6 +4,7 @@ using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Payments.Application.Authorisation;
 using Switchyard.Payments.Application.Ports;
+using Switchyard.Payments.Application.Refunds;
 using Switchyard.Payments.Application.Settlement;
 using Switchyard.Payments.Domain.Authorisation;
 using Switchyard.Payments.Domain.Settlement;
@@ -53,6 +54,17 @@ public sealed class PaymentsInboundMessageConsumer :
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
+
+        if (string.Equals(
+                message.MessageType,
+                RefundPaymentV1.MessageType,
+                StringComparison.Ordinal))
+        {
+            await ConsumeRefundAsync(
+                message,
+                cancellationToken);
+            return;
+        }
 
         if (string.Equals(
                 message.MessageType,
@@ -139,6 +151,111 @@ public sealed class PaymentsInboundMessageConsumer :
                     token);
             },
             cancellationToken);
+    }
+
+    private async Task ConsumeRefundAsync(
+        IntegrationMessageEnvelope message,
+        CancellationToken cancellationToken)
+    {
+        RefundPaymentV1 command;
+
+        try
+        {
+            command =
+                JsonSerializer.Deserialize<RefundPaymentV1>(
+                    message.PayloadJson,
+                    JsonSerializerOptions.Web) ??
+                throw new JsonException(
+                    "Refund payment payload is empty.");
+        }
+        catch (JsonException exception)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                $"Refund payment payload is invalid: {exception.Message}");
+        }
+
+        if (command.RequestId == Guid.Empty ||
+            command.OrderId == Guid.Empty ||
+            command.PaymentId == Guid.Empty ||
+            command.ReturnRequestId == Guid.Empty ||
+            command.ReturnReceiptId == Guid.Empty ||
+            command.Amount <= 0 ||
+            string.IsNullOrWhiteSpace(command.Currency) ||
+            command.Currency.Trim().Length != 3 ||
+            message.CorrelationId != command.OrderId)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                "Refund payment command contains invalid required fields or correlation.");
+        }
+
+        var claim =
+            await ClaimWhenAvailableAsync(
+                "payments-refund",
+                message,
+                cancellationToken);
+
+        if (claim.Status ==
+            PaymentsInboxClaimStatus.AlreadyProcessed)
+        {
+            return;
+        }
+
+        var processingToken =
+            claim.ProcessingToken ??
+            throw new InvalidOperationException(
+                "A claimed Payments refund message requires a processing token.");
+
+        await using var completionDbContext =
+            await _dbContextFactory.CreateDbContextAsync(
+                cancellationToken);
+
+        var completion =
+            new EfPaymentsInboxMessageProcessor(
+                completionDbContext,
+                _timeProvider);
+
+        try
+        {
+            await completion.CompleteAsync(
+                "payments-refund",
+                message,
+                processingToken,
+                async token =>
+                {
+                    var handler =
+                        new ApplyPaymentRefundRequestHandler(
+                            new EfPaymentRefundRequestStore(
+                                completionDbContext));
+
+                    await handler.HandleAsync(
+                        new ApplyPaymentRefundRequestCommand(
+                            command.RequestId,
+                            command.PaymentId,
+                            command.OrderId,
+                            command.ReturnRequestId,
+                            command.ReturnReceiptId,
+                            command.Amount,
+                            command.Currency,
+                            message.OccurredAtUtc),
+                        token);
+                },
+                cancellationToken);
+        }
+        catch (PaymentRefundConflictException exception)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                exception.Message);
+        }
+        catch (PaymentRefundNotAllowedException exception)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                exception.Message);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new NonRetryableIntegrationMessageException(
+                exception.Message);
+        }
     }
 
     private async Task ConsumeCaptureAsync(

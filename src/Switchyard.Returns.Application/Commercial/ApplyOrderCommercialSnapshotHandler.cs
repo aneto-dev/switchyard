@@ -78,4 +78,8 @@ public interface IReturnCommercialSnapshotRepository
     Task<ApplyOrderCommercialSnapshotResult> ApplyAsync(
         ReturnCommercialSnapshot snapshot,
         CancellationToken cancellationToken);
+
+    Task<ReturnCommercialSnapshot?> GetByOrderIdAsync(
+        Guid orderId,
+        CancellationToken cancellationToken);
 }
