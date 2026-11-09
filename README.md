@@ -78,6 +78,8 @@ Implemented so far:
 - return requests are authorised against remaining delivered quantity under the Returns transaction boundary
 - authorised return quantity reduces remaining eligibility without pretending the item has already been received
 - concurrent return requests cannot reserve the same delivered quantity twice
+- authorised return requests can be partially or fully received without changing total return eligibility
+- return receipt replay is idempotent and receipt quantities cannot exceed outstanding authorisation
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox

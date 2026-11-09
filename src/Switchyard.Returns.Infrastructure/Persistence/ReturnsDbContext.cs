@@ -27,6 +27,12 @@ public sealed class ReturnsDbContext : DbContext
     internal DbSet<ReturnRequestLineRecord> ReturnRequestLines =>
         Set<ReturnRequestLineRecord>();
 
+    internal DbSet<ReturnReceiptRecord> ReturnReceipts =>
+        Set<ReturnReceiptRecord>();
+
+    internal DbSet<ReturnReceiptLineRecord> ReturnReceiptLines =>
+        Set<ReturnReceiptLineRecord>();
+
     internal DbSet<ReturnsInboxMessageRecord> InboxMessages =>
         Set<ReturnsInboxMessageRecord>();
 
@@ -163,7 +169,7 @@ public sealed class ReturnsDbContext : DbContext
             table =>
                 table.HasCheckConstraint(
                     "ck_returns_return_request_status",
-                    "status = 0"));
+                    "status IN (0, 1, 2)"));
 
         returnRequest.HasKey(
                          record => new
@@ -231,6 +237,92 @@ public sealed class ReturnsDbContext : DbContext
                          {
                              record.OrderId,
                              record.ReturnRequestId
+                         })
+                     .OnDelete(DeleteBehavior.Cascade);
+
+        var returnReceipt =
+            modelBuilder.Entity<ReturnReceiptRecord>();
+
+        returnReceipt.ToTable(
+            "return_receipts",
+            "returns");
+
+        returnReceipt.HasKey(
+                         record => new
+                         {
+                             record.OrderId,
+                             record.ReturnReceiptId
+                         })
+                     .HasName(
+                         "pk_returns_return_receipts");
+
+        returnReceipt.Property(record => record.OrderId)
+                     .HasColumnName("order_id");
+
+        returnReceipt.Property(record => record.ReturnReceiptId)
+                     .HasColumnName("return_receipt_id");
+
+        returnReceipt.Property(record => record.ReturnRequestId)
+                     .HasColumnName("return_request_id");
+
+        returnReceipt.Property(record => record.ReceivedAtUtc)
+                     .HasColumnName("received_at_utc");
+
+        eligibility.HasMany(record => record.ReturnReceipts)
+                   .WithOne(record => record.Eligibility)
+                   .HasForeignKey(record => record.OrderId)
+                   .OnDelete(DeleteBehavior.Cascade);
+
+        returnReceipt.HasOne(record => record.ReturnRequest)
+                     .WithMany()
+                     .HasForeignKey(
+                         record => new
+                         {
+                             record.OrderId,
+                             record.ReturnRequestId
+                         })
+                     .OnDelete(DeleteBehavior.Cascade);
+
+        var returnReceiptLine =
+            modelBuilder.Entity<ReturnReceiptLineRecord>();
+
+        returnReceiptLine.ToTable(
+            "return_receipt_lines",
+            "returns",
+            table =>
+                table.HasCheckConstraint(
+                    "ck_returns_return_receipt_line_quantity",
+                    "quantity > 0"));
+
+        returnReceiptLine.HasKey(
+                             record => new
+                             {
+                                 record.OrderId,
+                                 record.ReturnReceiptId,
+                                 record.OrderLineId
+                             })
+                         .HasName(
+                             "pk_returns_return_receipt_lines");
+
+        returnReceiptLine.Property(record => record.OrderId)
+                         .HasColumnName("order_id");
+
+        returnReceiptLine.Property(record => record.ReturnReceiptId)
+                         .HasColumnName("return_receipt_id");
+
+        returnReceiptLine.Property(record => record.OrderLineId)
+                         .HasColumnName("order_line_id");
+
+        returnReceiptLine.Property(record => record.Quantity)
+                         .HasColumnName("quantity");
+
+        returnReceipt.HasMany(record => record.Lines)
+                     .WithOne(record => record.ReturnReceipt)
+                     .HasForeignKey(
+                         record => new
+                         {
+                             record.OrderId,
+                             record.ReturnReceiptId
                          })
                      .OnDelete(DeleteBehavior.Cascade);
 
