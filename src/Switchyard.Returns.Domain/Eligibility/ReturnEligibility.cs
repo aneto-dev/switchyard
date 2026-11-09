@@ -129,15 +129,15 @@ public sealed class ReturnEligibilityLine
             throw new ArgumentException("Order line ID cannot be empty.", nameof(orderLineId));
         }
 
-        if (deliveredQuantity < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(deliveredQuantity));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            deliveredQuantity);
 
-        if (returnedQuantity < 0 || returnedQuantity > deliveredQuantity)
-        {
-            throw new ArgumentOutOfRangeException(nameof(returnedQuantity));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegative(
+            returnedQuantity);
+
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(
+            returnedQuantity,
+            deliveredQuantity);
 
         OrderLineId = orderLineId;
         DeliveredQuantity = deliveredQuantity;
@@ -151,10 +151,8 @@ public sealed class ReturnEligibilityLine
 
     internal void AddDelivered(int quantity)
     {
-        if (quantity <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(quantity));
-        }
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
+            quantity);
 
         DeliveredQuantity = checked(DeliveredQuantity + quantity);
     }
