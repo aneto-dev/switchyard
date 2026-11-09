@@ -4,13 +4,18 @@ using Switchyard.Returns.Domain.Eligibility;
 
 namespace Switchyard.Returns.Infrastructure.Persistence;
 
-public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
+public sealed class EfReturnEligibilityRepository :
+    IReturnEligibilityRepository
 {
     private readonly ReturnsDbContext _dbContext;
 
-    public EfReturnEligibilityRepository(ReturnsDbContext dbContext)
+    public EfReturnEligibilityRepository(
+        ReturnsDbContext dbContext)
     {
-        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+        _dbContext =
+            dbContext ??
+            throw new ArgumentNullException(
+                nameof(dbContext));
     }
 
     public async Task<ReturnEligibility?> GetByOrderIdForUpdateAsync(
@@ -26,22 +31,31 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                             .Include(candidate => candidate.Lines)
                             .Include(candidate => candidate.Deliveries)
                                 .ThenInclude(delivery => delivery.Lines)
+                            .Include(candidate => candidate.ReturnRequests)
+                                .ThenInclude(request => request.Lines)
                             .SingleOrDefaultAsync(
-                                candidate => candidate.OrderId == orderId,
+                                candidate =>
+                                    candidate.OrderId ==
+                                    orderId,
                                 cancellationToken);
 
-        return record is null ? null : Map(record);
+        return record is null
+            ? null
+            : Map(record);
     }
 
     public async Task SaveAsync(
         ReturnEligibility eligibility,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(eligibility);
+        ArgumentNullException.ThrowIfNull(
+            eligibility);
 
         var record =
             _dbContext.Eligibilities.Local.SingleOrDefault(
-                candidate => candidate.OrderId == eligibility.OrderId);
+                candidate =>
+                    candidate.OrderId ==
+                    eligibility.OrderId);
 
         if (record is null)
         {
@@ -52,14 +66,18 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                     OrderNumber = eligibility.OrderNumber
                 };
 
-            await _dbContext.Eligibilities.AddAsync(record, cancellationToken);
+            await _dbContext.Eligibilities.AddAsync(
+                record,
+                cancellationToken);
         }
 
         foreach (var line in eligibility.Lines)
         {
             var persisted =
                 record.Lines.SingleOrDefault(
-                    candidate => candidate.OrderLineId == line.OrderLineId);
+                    candidate =>
+                        candidate.OrderLineId ==
+                        line.OrderLineId);
 
             if (persisted is null)
             {
@@ -69,20 +87,30 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                         OrderId = eligibility.OrderId,
                         OrderLineId = line.OrderLineId,
                         DeliveredQuantity = line.DeliveredQuantity,
+                        AuthorisedReturnQuantity =
+                            line.AuthorisedReturnQuantity,
                         ReturnedQuantity = line.ReturnedQuantity
                     });
             }
             else
             {
-                persisted.DeliveredQuantity = line.DeliveredQuantity;
-                persisted.ReturnedQuantity = line.ReturnedQuantity;
+                persisted.DeliveredQuantity =
+                    line.DeliveredQuantity;
+
+                persisted.AuthorisedReturnQuantity =
+                    line.AuthorisedReturnQuantity;
+
+                persisted.ReturnedQuantity =
+                    line.ReturnedQuantity;
             }
         }
 
         foreach (var delivery in eligibility.Deliveries)
         {
             if (record.Deliveries.Any(
-                    candidate => candidate.ShipmentId == delivery.ShipmentId))
+                    candidate =>
+                        candidate.ShipmentId ==
+                        delivery.ShipmentId))
             {
                 continue;
             }
@@ -107,13 +135,51 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                     });
             }
 
-            record.Deliveries.Add(persistedDelivery);
+            record.Deliveries.Add(
+                persistedDelivery);
         }
 
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        foreach (var request in eligibility.ReturnRequests)
+        {
+            if (record.ReturnRequests.Any(
+                    candidate =>
+                        candidate.ReturnRequestId ==
+                        request.ReturnRequestId))
+            {
+                continue;
+            }
+
+            var persistedRequest =
+                new ReturnRequestRecord
+                {
+                    OrderId = eligibility.OrderId,
+                    ReturnRequestId = request.ReturnRequestId,
+                    RequestedAtUtc = request.RequestedAtUtc,
+                    Status = (int)request.Status
+                };
+
+            foreach (var line in request.Lines)
+            {
+                persistedRequest.Lines.Add(
+                    new ReturnRequestLineRecord
+                    {
+                        OrderId = eligibility.OrderId,
+                        ReturnRequestId = request.ReturnRequestId,
+                        OrderLineId = line.OrderLineId,
+                        Quantity = line.Quantity
+                    });
+            }
+
+            record.ReturnRequests.Add(
+                persistedRequest);
+        }
+
+        await _dbContext.SaveChangesAsync(
+            cancellationToken);
     }
 
-    private static ReturnEligibility Map(ReturnEligibilityRecord record) =>
+    private static ReturnEligibility Map(
+        ReturnEligibilityRecord record) =>
         ReturnEligibility.Rehydrate(
             record.OrderId,
             record.OrderNumber,
@@ -124,6 +190,7 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                           new ReturnEligibilityLine(
                               line.OrderLineId,
                               line.DeliveredQuantity,
+                              line.AuthorisedReturnQuantity,
                               line.ReturnedQuantity)),
             record.Deliveries
                   .OrderBy(delivery => delivery.DeliveredAtUtc)
@@ -140,5 +207,22 @@ public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
                                               new DeliveredLine(
                                                   line.OrderLineId,
                                                   line.Quantity))
-                                      .ToArray())));
+                                      .ToArray())),
+            record.ReturnRequests
+                  .OrderBy(request => request.RequestedAtUtc)
+                  .ThenBy(request => request.ReturnRequestId)
+                  .Select(
+                      request =>
+                          new ReturnRequest(
+                              request.ReturnRequestId,
+                              request.RequestedAtUtc,
+                              (ReturnRequestStatus)request.Status,
+                              request.Lines
+                                     .OrderBy(line => line.OrderLineId)
+                                     .Select(
+                                         line =>
+                                             new ReturnRequestLine(
+                                                 line.OrderLineId,
+                                                 line.Quantity))
+                                     .ToArray())));
 }

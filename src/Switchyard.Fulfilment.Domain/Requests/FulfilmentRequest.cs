@@ -1328,7 +1328,10 @@ public sealed class FulfilmentShipment
 
         ArgumentNullException.ThrowIfNull(unitIds);
 
-        var materialized = unitIds.Distinct().ToArray();
+        var materialized =
+            unitIds.Distinct()
+                   .OrderBy(unitId => unitId)
+                   .ToArray();
 
         if (materialized.Length == 0 ||
             materialized.Any(unitId => unitId == Guid.Empty))
