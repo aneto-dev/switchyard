@@ -106,11 +106,14 @@ public sealed class FulfilmentShipmentCaptureTests
         {
             await new CreateShipmentHandler(
                 new EfFulfilmentRequestRepository(
+                    dbContext),
+                new EfFulfilmentOutboxStore(
                     dbContext)).HandleAsync(
                 new CreateShipmentCommand(
                     orderId,
                     shipmentId,
                     new[] { unitId },
+                    Guid.NewGuid(),
                     new DateTimeOffset(
                         2026,
                         11,

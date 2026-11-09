@@ -765,6 +765,33 @@ public sealed class FulfilmentRequest
             captureRequestId);
     }
 
+    public IReadOnlyList<FulfilmentShipmentLine> GetShipmentLines(
+        Guid shipmentId)
+    {
+        var shipment =
+            _shipments.SingleOrDefault(
+                candidate =>
+                    candidate.ShipmentId ==
+                    shipmentId) ??
+            throw new InvalidOperationException(
+                $"Fulfilment shipment '{shipmentId}' does not exist.");
+
+        var unitIds =
+            shipment.UnitIds.ToHashSet();
+
+        return _units
+            .Where(unit => unitIds.Contains(unit.UnitId))
+            .SelectMany(unit => unit.Lines)
+            .GroupBy(line => line.OrderLineId)
+            .Select(
+                group =>
+                    new FulfilmentShipmentLine(
+                        group.Key,
+                        group.Sum(line => line.Quantity)))
+            .OrderBy(line => line.OrderLineId)
+            .ToArray();
+    }
+
     public bool DeliverShipment(
         Guid shipmentId,
         DateTimeOffset deliveredAtUtc)
@@ -1403,6 +1430,10 @@ public sealed class FulfilmentShipment
         DeliveredAtUtc == other.DeliveredAtUtc &&
         UnitIds.SequenceEqual(other.UnitIds);
 }
+
+public sealed record FulfilmentShipmentLine(
+    Guid OrderLineId,
+    int Quantity);
 
 public sealed record FulfilmentDispatchDecision(
     bool Replayed,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Switchyard.Fulfilment.Application.Requests;
+using Switchyard.IntegrationContracts.Fulfilment;
 using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 
@@ -52,6 +53,35 @@ public sealed class DispatchShipmentHandler
                 command.ShipmentId,
                 Guid.NewGuid(),
                 command.DispatchedAtUtc);
+
+        if (!decision.Replayed)
+        {
+            var shipmentDispatched =
+                new ShipmentDispatchedV1(
+                    request.OrderId,
+                    command.ShipmentId,
+                    request.OrderNumber,
+                    request.GetShipmentLines(command.ShipmentId)
+                           .Select(
+                               line =>
+                                   new ShipmentLineV1(
+                                       line.OrderLineId,
+                                       line.Quantity))
+                           .ToArray(),
+                    command.DispatchedAtUtc);
+
+            await _outboxWriter.AddAsync(
+                new IntegrationMessageEnvelope(
+                    Guid.NewGuid(),
+                    ShipmentDispatchedV1.MessageType,
+                    JsonSerializer.Serialize(
+                        shipmentDispatched,
+                        JsonSerializerOptions.Web),
+                    command.DispatchedAtUtc,
+                    request.OrderId,
+                    command.CausationId),
+                cancellationToken);
+        }
 
         if (decision.CaptureRequired)
         {
