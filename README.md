@@ -71,6 +71,7 @@ Implemented so far:
 - Fulfilment units can prepare partial quantities across multiple units while preserving the remaining cancellable quantity
 - Fulfilment owns the prepare-vs-cancel race under a row lock and durably records accepted or rejected cancellation decisions
 - prepared fulfilment units can be grouped into shipments
+- shipment creation, dispatch and delivery publish durable quantity-aware Fulfilment events
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox

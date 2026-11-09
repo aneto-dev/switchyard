@@ -462,6 +462,10 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     .HasColumnType("timestamp with time zone")
                     .HasColumnName("dispatched_at_utc");
 
+                b.Property<DateTimeOffset?>("DeliveredAtUtc")
+                    .HasColumnType("timestamp with time zone")
+                    .HasColumnName("delivered_at_utc");
+
                 b.HasKey(
                     "OrderId",
                     "ShipmentId")
@@ -473,6 +477,12 @@ partial class FulfilmentDbContextModelSnapshot : ModelSnapshot
                     "fulfilment",
                     t =>
                     {
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_shipment_delivery_shape",
+                            "delivered_at_utc IS NULL OR dispatched_at_utc IS NOT NULL");
+                        t.HasCheckConstraint(
+                            "ck_fulfilment_shipment_delivery_time",
+                            "delivered_at_utc IS NULL OR delivered_at_utc >= dispatched_at_utc");
                         t.HasCheckConstraint(
                             "ck_fulfilment_shipment_dispatch_time",
                             "dispatched_at_utc IS NULL OR dispatched_at_utc >= created_at_utc");

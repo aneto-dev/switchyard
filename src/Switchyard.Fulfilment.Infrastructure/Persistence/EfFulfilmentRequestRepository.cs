@@ -279,7 +279,8 @@ public sealed class EfFulfilmentRequestRepository :
                         OrderId = request.OrderId,
                         ShipmentId = shipment.ShipmentId,
                         CreatedAtUtc = shipment.CreatedAtUtc,
-                        DispatchedAtUtc = shipment.DispatchedAtUtc
+                        DispatchedAtUtc = shipment.DispatchedAtUtc,
+                        DeliveredAtUtc = shipment.DeliveredAtUtc
                     };
 
                 foreach (var unitId in shipment.UnitIds)
@@ -298,6 +299,7 @@ public sealed class EfFulfilmentRequestRepository :
             else
             {
                 persisted.DispatchedAtUtc = shipment.DispatchedAtUtc;
+                persisted.DeliveredAtUtc = shipment.DeliveredAtUtc;
             }
         }
 
@@ -367,7 +369,8 @@ public sealed class EfFulfilmentRequestRepository :
                                       .OrderBy(unit => unit.UnitId)
                                       .Select(unit => unit.UnitId),
                               shipment.CreatedAtUtc,
-                              shipment.DispatchedAtUtc)),
+                              shipment.DispatchedAtUtc,
+                              shipment.DeliveredAtUtc)),
             record.PaymentCaptureRequestId,
             record.PaymentCaptureRequestedAtUtc,
             record.PaymentCaptureStatus,
