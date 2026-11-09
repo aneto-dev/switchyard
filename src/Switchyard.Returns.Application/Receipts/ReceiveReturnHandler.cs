@@ -3,6 +3,7 @@ using Switchyard.IntegrationContracts.Payments;
 using Switchyard.Messaging;
 using Switchyard.Returns.Application.Commercial;
 using Switchyard.Returns.Application.Eligibility;
+using Switchyard.Returns.Application.Refunds;
 using Switchyard.Returns.Application.Requests;
 using Switchyard.Returns.Domain.Eligibility;
 
@@ -13,12 +14,14 @@ public sealed class ReceiveReturnHandler
     private readonly IReturnEligibilityRepository _repository;
     private readonly IReturnCommercialSnapshotRepository _commercialRepository;
     private readonly IOutboxWriter _outboxWriter;
+    private readonly IReturnRefundRepository _refundRepository;
     private readonly IReturnsUnitOfWork _unitOfWork;
 
     public ReceiveReturnHandler(
         IReturnEligibilityRepository repository,
         IReturnCommercialSnapshotRepository commercialRepository,
         IOutboxWriter outboxWriter,
+        IReturnRefundRepository refundRepository,
         IReturnsUnitOfWork unitOfWork)
     {
         _repository =
@@ -35,6 +38,11 @@ public sealed class ReceiveReturnHandler
             outboxWriter ??
             throw new ArgumentNullException(
                 nameof(outboxWriter));
+
+        _refundRepository =
+            refundRepository ??
+            throw new ArgumentNullException(
+                nameof(refundRepository));
 
         _unitOfWork =
             unitOfWork ??
@@ -128,6 +136,20 @@ public sealed class ReceiveReturnHandler
                         command.ReceivedAtUtc,
                         command.OrderId,
                         command.ReturnReceiptId),
+                    cancellationToken);
+
+                await _refundRepository.CreatePendingAsync(
+                    new ReturnRefundProjection(
+                        command.OrderId,
+                        command.ReturnRequestId,
+                        command.ReturnReceiptId,
+                        commercial.PaymentId,
+                        refundAmount,
+                        commercial.Currency,
+                        ReturnRefundStatus.Pending,
+                        null,
+                        command.ReceivedAtUtc,
+                        command.ReceivedAtUtc),
                     cancellationToken);
             }
 

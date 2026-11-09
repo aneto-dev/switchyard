@@ -1,5 +1,21 @@
 namespace Switchyard.Returns.Infrastructure.Persistence;
 
+internal sealed class ReturnRefundRecord
+{
+    public Guid OrderId { get; set; }
+    public Guid ReturnReceiptId { get; set; }
+    public Guid ReturnRequestId { get; set; }
+    public Guid PaymentId { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = string.Empty;
+    public int Status { get; set; }
+    public string? ProviderReference { get; set; }
+    public DateTimeOffset RequestedAtUtc { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; }
+}
+
+namespace Switchyard.Returns.Infrastructure.Persistence;
+
 internal sealed class ReturnCommercialSnapshotRecord
 {
     public Guid OrderId { get; set; }
