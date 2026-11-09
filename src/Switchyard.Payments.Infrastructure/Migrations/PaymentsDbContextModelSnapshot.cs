@@ -22,6 +22,16 @@ namespace Switchyard.Payments.Infrastructure.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Switchyard.Payments.Infrastructure.Persistence.PaymentRefundRequestRecord", b =>
+                {
+                    b.HasOne("Switchyard.Payments.Infrastructure.Persistence.PaymentIntentRecord", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_payments_refund_payment_intent");
+                });
+
             modelBuilder.Entity("Switchyard.Payments.Infrastructure.Persistence.PaymentAuthorisationAttemptRecord", b =>
                 {
                     b.Property<Guid>("RequestId")
@@ -324,6 +334,68 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                             t.HasCheckConstraint("ck_payments_outbox_published_not_locked", "published_at_utc IS NULL OR (lock_token IS NULL AND locked_until_utc IS NULL)");
 
                             t.HasCheckConstraint("ck_payments_outbox_published_time", "published_at_utc IS NULL OR published_at_utc >= occurred_at_utc");
+                        });
+                });
+
+            modelBuilder.Entity("Switchyard.Payments.Infrastructure.Persistence.PaymentRefundRequestRecord", b =>
+                {
+                    b.Property<Guid>("RequestId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<DateTimeOffset>("RequestedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("requested_at_utc");
+
+                    b.Property<Guid>("ReturnReceiptId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("return_receipt_id");
+
+                    b.Property<Guid>("ReturnRequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("return_request_id");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
+                    b.HasKey("RequestId")
+                        .HasName("pk_payments_refund_requests");
+
+                    b.HasIndex("PaymentId")
+                        .HasDatabaseName("ix_payments_refund_payment");
+
+                    b.HasIndex("ReturnReceiptId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_payments_refund_return_receipt");
+
+                    b.ToTable("refund_requests", "payments", t =>
+                        {
+                            t.HasCheckConstraint("ck_payments_refund_amount", "amount > 0");
+
+                            t.HasCheckConstraint("ck_payments_refund_currency", "currency ~ '^[A-Z]{3}$'");
+
+                            t.HasCheckConstraint("ck_payments_refund_status", "status = 0");
                         });
                 });
 
