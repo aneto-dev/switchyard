@@ -70,14 +70,14 @@ public sealed class ReturnRequestAuthorisationTests
                     cancellationToken));
 
         Assert.Single(
-            attempts.Where(
-                authorised =>
-                    authorised));
+            attempts,
+            authorised =>
+                authorised);
 
         Assert.Single(
-            attempts.Where(
-                authorised =>
-                    !authorised));
+            attempts,
+            authorised =>
+                !authorised);
 
         await using var connection =
             new NpgsqlConnection(
