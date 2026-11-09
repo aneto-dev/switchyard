@@ -145,4 +145,51 @@ public sealed class ReturnEligibilityTests
             eligibility.GetReturnableQuantity(
                 lineId));
     }
+    [Fact]
+    public void ReusedReturnRequestIdWithDifferentQuantityConflicts()
+    {
+        var lineId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var requestedAtUtc =
+            new DateTimeOffset(
+                2026, 11, 9, 12, 5, 0, TimeSpan.Zero);
+
+        var eligibility =
+            ReturnEligibility.Create(
+                Guid.NewGuid(),
+                "SW-RET-103");
+
+        eligibility.RecordDelivery(
+            Guid.NewGuid(),
+            new[]
+            {
+                new DeliveredLine(
+                    lineId,
+                    3)
+            },
+            requestedAtUtc.AddMinutes(-5));
+
+        eligibility.AuthoriseReturn(
+            requestId,
+            new[]
+            {
+                new ReturnRequestLine(
+                    lineId,
+                    1)
+            },
+            requestedAtUtc);
+
+        Assert.Throws<ReturnRequestConflictException>(
+            () =>
+                eligibility.AuthoriseReturn(
+                    requestId,
+                    new[]
+                    {
+                        new ReturnRequestLine(
+                            lineId,
+                            2)
+                    },
+                    requestedAtUtc));
+    }
+
 }
