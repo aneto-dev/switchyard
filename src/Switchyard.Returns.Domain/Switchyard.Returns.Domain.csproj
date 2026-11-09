@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Switchyard.Returns.Domain</AssemblyName>
+    <RootNamespace>Switchyard.Returns.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

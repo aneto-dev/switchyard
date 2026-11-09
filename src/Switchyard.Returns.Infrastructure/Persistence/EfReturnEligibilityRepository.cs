@@ -1,0 +1,144 @@
+using Microsoft.EntityFrameworkCore;
+using Switchyard.Returns.Application.Eligibility;
+using Switchyard.Returns.Domain.Eligibility;
+
+namespace Switchyard.Returns.Infrastructure.Persistence;
+
+public sealed class EfReturnEligibilityRepository : IReturnEligibilityRepository
+{
+    private readonly ReturnsDbContext _dbContext;
+
+    public EfReturnEligibilityRepository(ReturnsDbContext dbContext)
+    {
+        _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
+    }
+
+    public async Task<ReturnEligibility?> GetByOrderIdForUpdateAsync(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        await _dbContext.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({orderId.ToString()}, 0));",
+            cancellationToken);
+
+        var record =
+            await _dbContext.Eligibilities
+                            .Include(candidate => candidate.Lines)
+                            .Include(candidate => candidate.Deliveries)
+                                .ThenInclude(delivery => delivery.Lines)
+                            .SingleOrDefaultAsync(
+                                candidate => candidate.OrderId == orderId,
+                                cancellationToken);
+
+        return record is null ? null : Map(record);
+    }
+
+    public async Task SaveAsync(
+        ReturnEligibility eligibility,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(eligibility);
+
+        var record =
+            _dbContext.Eligibilities.Local.SingleOrDefault(
+                candidate => candidate.OrderId == eligibility.OrderId);
+
+        if (record is null)
+        {
+            record =
+                new ReturnEligibilityRecord
+                {
+                    OrderId = eligibility.OrderId,
+                    OrderNumber = eligibility.OrderNumber
+                };
+
+            await _dbContext.Eligibilities.AddAsync(record, cancellationToken);
+        }
+
+        foreach (var line in eligibility.Lines)
+        {
+            var persisted =
+                record.Lines.SingleOrDefault(
+                    candidate => candidate.OrderLineId == line.OrderLineId);
+
+            if (persisted is null)
+            {
+                record.Lines.Add(
+                    new ReturnEligibilityLineRecord
+                    {
+                        OrderId = eligibility.OrderId,
+                        OrderLineId = line.OrderLineId,
+                        DeliveredQuantity = line.DeliveredQuantity,
+                        ReturnedQuantity = line.ReturnedQuantity
+                    });
+            }
+            else
+            {
+                persisted.DeliveredQuantity = line.DeliveredQuantity;
+                persisted.ReturnedQuantity = line.ReturnedQuantity;
+            }
+        }
+
+        foreach (var delivery in eligibility.Deliveries)
+        {
+            if (record.Deliveries.Any(
+                    candidate => candidate.ShipmentId == delivery.ShipmentId))
+            {
+                continue;
+            }
+
+            var persistedDelivery =
+                new ShipmentDeliveryRecord
+                {
+                    OrderId = eligibility.OrderId,
+                    ShipmentId = delivery.ShipmentId,
+                    DeliveredAtUtc = delivery.DeliveredAtUtc
+                };
+
+            foreach (var line in delivery.Lines)
+            {
+                persistedDelivery.Lines.Add(
+                    new ShipmentDeliveryLineRecord
+                    {
+                        OrderId = eligibility.OrderId,
+                        ShipmentId = delivery.ShipmentId,
+                        OrderLineId = line.OrderLineId,
+                        Quantity = line.Quantity
+                    });
+            }
+
+            record.Deliveries.Add(persistedDelivery);
+        }
+
+        await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private static ReturnEligibility Map(ReturnEligibilityRecord record) =>
+        ReturnEligibility.Rehydrate(
+            record.OrderId,
+            record.OrderNumber,
+            record.Lines
+                  .OrderBy(line => line.OrderLineId)
+                  .Select(
+                      line =>
+                          new ReturnEligibilityLine(
+                              line.OrderLineId,
+                              line.DeliveredQuantity,
+                              line.ReturnedQuantity)),
+            record.Deliveries
+                  .OrderBy(delivery => delivery.DeliveredAtUtc)
+                  .ThenBy(delivery => delivery.ShipmentId)
+                  .Select(
+                      delivery =>
+                          new ShipmentDeliveryFact(
+                              delivery.ShipmentId,
+                              delivery.DeliveredAtUtc,
+                              delivery.Lines
+                                      .OrderBy(line => line.OrderLineId)
+                                      .Select(
+                                          line =>
+                                              new DeliveredLine(
+                                                  line.OrderLineId,
+                                                  line.Quantity))
+                                      .ToArray())));
+}

@@ -56,6 +56,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Fulfilment.Appli
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Fulfilment.Infrastructure", "src\Switchyard.Fulfilment.Infrastructure\Switchyard.Fulfilment.Infrastructure.csproj", "{C760FFB7-2F83-4B28-AB6F-C6119F2A0003}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Returns.Domain", "src\Switchyard.Returns.Domain\Switchyard.Returns.Domain.csproj", "{D870FFB7-2F83-4B28-AB6F-C6119F2A0001}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Returns.Application", "src\Switchyard.Returns.Application\Switchyard.Returns.Application.csproj", "{D870FFB7-2F83-4B28-AB6F-C6119F2A0002}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Switchyard.Returns.Infrastructure", "src\Switchyard.Returns.Infrastructure\Switchyard.Returns.Infrastructure.csproj", "{D870FFB7-2F83-4B28-AB6F-C6119F2A0003}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU

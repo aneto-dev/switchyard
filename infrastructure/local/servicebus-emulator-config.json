@@ -127,6 +127,29 @@
                     }
                   }
                 ]
+              },
+              {
+                "Name": "returns",
+                "Properties": {
+                  "DeadLetteringOnMessageExpiration": true,
+                  "DefaultMessageTimeToLive": "PT1H",
+                  "LockDuration": "PT1M",
+                  "MaxDeliveryCount": 5,
+                  "ForwardDeadLetteredMessagesTo": "",
+                  "ForwardTo": "",
+                  "RequiresSession": false
+                },
+                "Rules": [
+                  {
+                    "Name": "returns-inbound",
+                    "Properties": {
+                      "FilterType": "Sql",
+                      "SqlFilter": {
+                        "SqlExpression": "sys.label = 'fulfilment.event.shipment-delivered.v1'"
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
