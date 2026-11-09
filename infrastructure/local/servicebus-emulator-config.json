@@ -145,7 +145,7 @@
                     "Properties": {
                       "FilterType": "Sql",
                       "SqlFilter": {
-                        "SqlExpression": "sys.label = 'fulfilment.event.shipment-delivered.v1'"
+                        "SqlExpression": "sys.label = 'fulfilment.event.shipment-delivered.v1' OR sys.label = 'ordering.event.commercial-snapshot.v1'"
                       }
                     }
                   }

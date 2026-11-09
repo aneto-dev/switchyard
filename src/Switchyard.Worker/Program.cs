@@ -344,6 +344,9 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     IReturnsInboundMessageRoute,
     ShipmentDeliveredReturnsInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IReturnsInboundMessageRoute,
+    OrderCommercialSnapshotReturnsInboundMessageRoute>();
 
 builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
     provider =>
