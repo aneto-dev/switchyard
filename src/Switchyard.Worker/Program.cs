@@ -186,6 +186,39 @@ var paymentsReconciliationOptions =
                 1000,
                 "SWITCHYARD_PAYMENTS_RECONCILIATION_POLL_MILLISECONDS")));
 
+var paymentsRefundExecutionOptions =
+    new PaymentsRefundExecutionOptions(
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_EXECUTION_BATCH_SIZE"],
+            25,
+            "SWITCHYARD_PAYMENTS_REFUND_EXECUTION_BATCH_SIZE"),
+        TimeSpan.FromMilliseconds(
+            GetPositiveInt(
+                builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_EXECUTION_POLL_MILLISECONDS"],
+                1000,
+                "SWITCHYARD_PAYMENTS_REFUND_EXECUTION_POLL_MILLISECONDS")));
+
+var paymentsRefundReconciliationOptions =
+    new PaymentsRefundReconciliationOptions(
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_BATCH_SIZE"],
+            25,
+            "SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_BATCH_SIZE"),
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_MAX_ATTEMPTS"],
+            5,
+            "SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_MAX_ATTEMPTS"),
+        TimeSpan.FromSeconds(
+            GetNonNegativeInt(
+                builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_RETRY_SECONDS"],
+                30,
+                "SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_RETRY_SECONDS")),
+        TimeSpan.FromMilliseconds(
+            GetPositiveInt(
+                builder.Configuration["SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_POLL_MILLISECONDS"],
+                1000,
+                "SWITCHYARD_PAYMENTS_REFUND_RECONCILIATION_POLL_MILLISECONDS")));
+
 var paymentsSettlementReconciliationOptions =
     new PaymentsSettlementReconciliationOptions(
         GetPositiveInt(
@@ -231,6 +264,18 @@ var paymentSettlementReconciliationScenario =
         SimulatedPaymentSettlementReconciliationScenario.Succeed,
         "SWITCHYARD_PAYMENT_SETTLEMENT_RECONCILIATION_SCENARIO");
 
+var paymentRefundScenario =
+    GetEnumSetting(
+        builder.Configuration["SWITCHYARD_PAYMENT_REFUND_SCENARIO"],
+        SimulatedPaymentRefundScenario.Succeed,
+        "SWITCHYARD_PAYMENT_REFUND_SCENARIO");
+
+var paymentRefundReconciliationScenario =
+    GetEnumSetting(
+        builder.Configuration["SWITCHYARD_PAYMENT_REFUND_RECONCILIATION_SCENARIO"],
+        SimulatedPaymentRefundReconciliationScenario.Succeed,
+        "SWITCHYARD_PAYMENT_REFUND_RECONCILIATION_SCENARIO");
+
 var reservationPolicy =
     new InventoryReservationPolicy(
         TimeSpan.FromMinutes(
@@ -272,6 +317,8 @@ builder.Services.AddSingleton(fulfilmentOutboxOptions);
 builder.Services.AddSingleton(returnsOutboxOptions);
 builder.Services.AddSingleton(paymentsReconciliationOptions);
 builder.Services.AddSingleton(paymentsSettlementReconciliationOptions);
+builder.Services.AddSingleton(paymentsRefundExecutionOptions);
+builder.Services.AddSingleton(paymentsRefundReconciliationOptions);
 builder.Services.AddSingleton(reservationPolicy);
 builder.Services.AddSingleton(TimeProvider.System);
 
@@ -301,6 +348,21 @@ builder.Services.AddSingleton<IPaymentSettlementReconciliationProvider>(
     provider =>
         provider.GetRequiredService<
             SimulatedPaymentAuthorisationProvider>());
+
+builder.Services.AddSingleton(
+    new SimulatedPaymentRefundProvider(
+        paymentRefundScenario,
+        paymentRefundReconciliationScenario));
+
+builder.Services.AddSingleton<IPaymentRefundProvider>(
+    provider =>
+        provider.GetRequiredService<
+            SimulatedPaymentRefundProvider>());
+
+builder.Services.AddSingleton<IPaymentRefundReconciliationProvider>(
+    provider =>
+        provider.GetRequiredService<
+            SimulatedPaymentRefundProvider>());
 
 builder.Services.AddSingleton(
     _ => ServiceBusClientFactory.Create(
@@ -452,6 +514,14 @@ builder.Services.AddSingleton<
     IPaymentsSettlementReconciliationCycle,
     PaymentsSettlementReconciliationCycle>();
 
+builder.Services.AddSingleton<
+    IPaymentsRefundExecutionCycle,
+    PaymentsRefundExecutionCycle>();
+
+builder.Services.AddSingleton<
+    IPaymentsRefundReconciliationCycle,
+    PaymentsRefundReconciliationCycle>();
+
 builder.Services.AddHostedService<OrderingOutboxDispatchWorker>();
 builder.Services.AddHostedService<InventoryOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsOutboxDispatchWorker>();
@@ -459,6 +529,8 @@ builder.Services.AddHostedService<FulfilmentOutboxDispatchWorker>();
 builder.Services.AddHostedService<ReturnsOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsAuthorisationReconciliationWorker>();
 builder.Services.AddHostedService<PaymentsSettlementReconciliationWorker>();
+builder.Services.AddHostedService<PaymentsRefundExecutionWorker>();
+builder.Services.AddHostedService<PaymentsRefundReconciliationWorker>();
 builder.Services.AddHostedService<ServiceBusSubscriptionWorker>();
 
 await builder.Build().RunAsync();

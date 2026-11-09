@@ -152,7 +152,14 @@ public sealed class EfPaymentRefundRequestStore :
                 Amount = request.Amount,
                 Currency = normalizedCurrency,
                 Status = PaymentRefundStatus.Pending,
-                RequestedAtUtc = request.RequestedAtUtc.ToUniversalTime()
+                ProviderIdempotencyKey =
+                    $"switchyard-refund-{request.RequestId:N}",
+                ProviderReference = null,
+                RequestedAtUtc = request.RequestedAtUtc.ToUniversalTime(),
+                ProviderInvocationClaimedAtUtc = null,
+                ResolvedAtUtc = null,
+                ReconciliationAttemptCount = 0,
+                LastReconciledAtUtc = null
             };
 
         await _dbContext.RefundRequests.AddAsync(

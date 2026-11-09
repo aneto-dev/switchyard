@@ -355,6 +355,10 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                         .HasColumnType("character varying(3)")
                         .HasColumnName("currency");
 
+                    b.Property<DateTimeOffset?>("LastReconciledAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_reconciled_at_utc");
+
                     b.Property<Guid>("OrderId")
                         .HasColumnType("uuid")
                         .HasColumnName("order_id");
@@ -363,9 +367,34 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("payment_id");
 
+                    b.Property<string>("ProviderIdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("provider_idempotency_key");
+
+                    b.Property<DateTimeOffset?>("ProviderInvocationClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("provider_invocation_claimed_at_utc");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("provider_reference");
+
+                    b.Property<int>("ReconciliationAttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("reconciliation_attempt_count");
+
                     b.Property<DateTimeOffset>("RequestedAtUtc")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("requested_at_utc");
+
+                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("resolved_at_utc");
 
                     b.Property<Guid>("ReturnReceiptId")
                         .HasColumnType("uuid")
@@ -385,6 +414,14 @@ namespace Switchyard.Payments.Infrastructure.Migrations
                     b.HasIndex("PaymentId")
                         .HasDatabaseName("ix_payments_refund_payment");
 
+                    b.HasIndex("ProviderIdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_payments_refund_provider_key");
+
+                    b.HasIndex("ProviderReference")
+                        .IsUnique()
+                        .HasDatabaseName("ux_payments_refund_provider_reference");
+
                     b.HasIndex("ReturnReceiptId")
                         .IsUnique()
                         .HasDatabaseName("ux_payments_refund_return_receipt");
@@ -395,7 +432,25 @@ namespace Switchyard.Payments.Infrastructure.Migrations
 
                             t.HasCheckConstraint("ck_payments_refund_currency", "currency ~ '^[A-Z]{3}$'");
 
-                            t.HasCheckConstraint("ck_payments_refund_status", "status = 0");
+                            t.HasCheckConstraint("ck_payments_refund_invocation_time", "provider_invocation_claimed_at_utc IS NULL OR provider_invocation_claimed_at_utc >= requested_at_utc");
+
+                            t.HasCheckConstraint("ck_payments_refund_pending_not_reconciled", "status <> 0 OR reconciliation_attempt_count = 0");
+
+                            t.HasCheckConstraint("ck_payments_refund_provider_key", "btrim(provider_idempotency_key) <> ''");
+
+                            t.HasCheckConstraint("ck_payments_refund_provider_reference", "provider_reference IS NULL OR btrim(provider_reference) <> ''");
+
+                            t.HasCheckConstraint("ck_payments_refund_reconciliation_count", "reconciliation_attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_payments_refund_reconciliation_shape", "(reconciliation_attempt_count = 0 AND last_reconciled_at_utc IS NULL) OR (reconciliation_attempt_count > 0 AND last_reconciled_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_payments_refund_reconciliation_time", "last_reconciled_at_utc IS NULL OR last_reconciled_at_utc >= requested_at_utc");
+
+                            t.HasCheckConstraint("ck_payments_refund_resolved_time", "resolved_at_utc IS NULL OR resolved_at_utc >= requested_at_utc");
+
+                            t.HasCheckConstraint("ck_payments_refund_shape", "(status = 0 AND provider_reference IS NULL AND resolved_at_utc IS NULL) OR (status = 1 AND provider_reference IS NOT NULL AND resolved_at_utc IS NOT NULL) OR (status IN (2, 3) AND resolved_at_utc IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_payments_refund_status", "status IN (0, 1, 2, 3)");
                         });
                 });
 
