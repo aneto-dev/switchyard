@@ -123,6 +123,27 @@ var fulfilmentOutboxOptions = new FulfilmentOutboxWorkerOptions(
             500,
             "SWITCHYARD_FULFILMENT_OUTBOX_POLL_MILLISECONDS")));
 
+var returnsOutboxOptions = new ReturnsOutboxWorkerOptions(
+    GetPositiveInt(
+        builder.Configuration["SWITCHYARD_RETURNS_OUTBOX_BATCH_SIZE"],
+        50,
+        "SWITCHYARD_RETURNS_OUTBOX_BATCH_SIZE"),
+    TimeSpan.FromSeconds(
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_RETURNS_OUTBOX_LEASE_SECONDS"],
+            60,
+            "SWITCHYARD_RETURNS_OUTBOX_LEASE_SECONDS")),
+    TimeSpan.FromSeconds(
+        GetNonNegativeInt(
+            builder.Configuration["SWITCHYARD_RETURNS_OUTBOX_RETRY_SECONDS"],
+            30,
+            "SWITCHYARD_RETURNS_OUTBOX_RETRY_SECONDS")),
+    TimeSpan.FromMilliseconds(
+        GetPositiveInt(
+            builder.Configuration["SWITCHYARD_RETURNS_OUTBOX_POLL_MILLISECONDS"],
+            500,
+            "SWITCHYARD_RETURNS_OUTBOX_POLL_MILLISECONDS")));
+
 var paymentsOutboxOptions = new PaymentsOutboxWorkerOptions(
     GetPositiveInt(
         builder.Configuration["SWITCHYARD_PAYMENTS_OUTBOX_BATCH_SIZE"],
@@ -248,6 +269,7 @@ builder.Services.AddSingleton(orderingOutboxOptions);
 builder.Services.AddSingleton(inventoryOutboxOptions);
 builder.Services.AddSingleton(paymentsOutboxOptions);
 builder.Services.AddSingleton(fulfilmentOutboxOptions);
+builder.Services.AddSingleton(returnsOutboxOptions);
 builder.Services.AddSingleton(paymentsReconciliationOptions);
 builder.Services.AddSingleton(paymentsSettlementReconciliationOptions);
 builder.Services.AddSingleton(reservationPolicy);
@@ -419,6 +441,10 @@ builder.Services.AddSingleton<
     FulfilmentOutboxDispatchCycle>();
 
 builder.Services.AddSingleton<
+    IReturnsOutboxDispatchCycle,
+    ReturnsOutboxDispatchCycle>();
+
+builder.Services.AddSingleton<
     IPaymentsAuthorisationReconciliationCycle,
     PaymentsAuthorisationReconciliationCycle>();
 
@@ -430,6 +456,7 @@ builder.Services.AddHostedService<OrderingOutboxDispatchWorker>();
 builder.Services.AddHostedService<InventoryOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsOutboxDispatchWorker>();
 builder.Services.AddHostedService<FulfilmentOutboxDispatchWorker>();
+builder.Services.AddHostedService<ReturnsOutboxDispatchWorker>();
 builder.Services.AddHostedService<PaymentsAuthorisationReconciliationWorker>();
 builder.Services.AddHostedService<PaymentsSettlementReconciliationWorker>();
 builder.Services.AddHostedService<ServiceBusSubscriptionWorker>();

@@ -17,6 +17,41 @@ public sealed class EfReturnCommercialSnapshotRepository :
                 nameof(dbContext));
     }
 
+    public async Task<ReturnCommercialSnapshot?> GetByOrderIdAsync(
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        var record =
+            await _dbContext.CommercialSnapshots
+                            .AsNoTracking()
+                            .Include(candidate => candidate.Lines)
+                            .SingleOrDefaultAsync(
+                                candidate =>
+                                    candidate.OrderId ==
+                                    orderId,
+                                cancellationToken);
+
+        return record is null
+            ? null
+            : new ReturnCommercialSnapshot(
+                record.OrderId,
+                record.PaymentId,
+                record.OrderNumber,
+                record.TotalAmount,
+                record.Currency,
+                record.ConfirmedAtUtc,
+                record.Lines
+                      .OrderBy(line => line.OrderLineId)
+                      .Select(
+                          line =>
+                              new ReturnCommercialSnapshotLine(
+                                  line.OrderLineId,
+                                  line.Quantity,
+                                  line.UnitPriceAmount,
+                                  line.Currency))
+                      .ToArray());
+    }
+
     public async Task<ApplyOrderCommercialSnapshotResult> ApplyAsync(
         ReturnCommercialSnapshot snapshot,
         CancellationToken cancellationToken)

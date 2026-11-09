@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Switchyard.Payments.Domain.Authorisation;
+using Switchyard.Payments.Domain.Refunds;
 using Switchyard.Payments.Domain.Settlement;
 
 namespace Switchyard.Payments.Infrastructure.Persistence;
@@ -18,6 +19,9 @@ public sealed class PaymentsDbContext : DbContext
 
     internal DbSet<PaymentSettlementAttemptRecord> SettlementAttempts =>
         Set<PaymentSettlementAttemptRecord>();
+
+    internal DbSet<PaymentRefundRequestRecord> RefundRequests =>
+        Set<PaymentRefundRequestRecord>();
 
     internal DbSet<PaymentOutboxMessageRecord> OutboxMessages =>
         Set<PaymentOutboxMessageRecord>();
@@ -220,6 +224,73 @@ public sealed class PaymentsDbContext : DbContext
                   .HasForeignKey(record => record.PaymentId)
                   .OnDelete(DeleteBehavior.Restrict)
                   .HasConstraintName("fk_payments_settlement_payment_intent");
+
+        var refund =
+            modelBuilder.Entity<PaymentRefundRequestRecord>();
+
+        refund.ToTable(
+            "refund_requests",
+            "payments",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_payments_refund_amount",
+                    "amount > 0");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_currency",
+                    "currency ~ '^[A-Z]{3}$'");
+                table.HasCheckConstraint(
+                    "ck_payments_refund_status",
+                    "status = 0");
+            });
+
+        refund.HasKey(record => record.RequestId)
+              .HasName("pk_payments_refund_requests");
+
+        refund.Property(record => record.RequestId)
+              .HasColumnName("request_id");
+
+        refund.Property(record => record.PaymentId)
+              .HasColumnName("payment_id");
+
+        refund.Property(record => record.OrderId)
+              .HasColumnName("order_id");
+
+        refund.Property(record => record.ReturnRequestId)
+              .HasColumnName("return_request_id");
+
+        refund.Property(record => record.ReturnReceiptId)
+              .HasColumnName("return_receipt_id");
+
+        refund.Property(record => record.Amount)
+              .HasColumnName("amount")
+              .HasPrecision(18, 2);
+
+        refund.Property(record => record.Currency)
+              .HasColumnName("currency")
+              .HasMaxLength(3)
+              .IsRequired();
+
+        refund.Property(record => record.Status)
+              .HasColumnName("status")
+              .HasConversion<int>();
+
+        refund.Property(record => record.RequestedAtUtc)
+              .HasColumnName("requested_at_utc")
+              .IsRequired();
+
+        refund.HasIndex(record => record.ReturnReceiptId)
+              .IsUnique()
+              .HasDatabaseName("ux_payments_refund_return_receipt");
+
+        refund.HasIndex(record => record.PaymentId)
+              .HasDatabaseName("ix_payments_refund_payment");
+
+        refund.HasOne<PaymentIntentRecord>()
+              .WithMany()
+              .HasForeignKey(record => record.PaymentId)
+              .OnDelete(DeleteBehavior.Restrict)
+              .HasConstraintName("fk_payments_refund_payment_intent");
 
         var outbox = modelBuilder.Entity<PaymentOutboxMessageRecord>();
         outbox.ToTable(

@@ -1,3 +1,7 @@
+using System.Text.Json;
+using Switchyard.IntegrationContracts.Payments;
+using Switchyard.Messaging;
+using Switchyard.Returns.Application.Commercial;
 using Switchyard.Returns.Application.Eligibility;
 using Switchyard.Returns.Application.Requests;
 using Switchyard.Returns.Domain.Eligibility;
@@ -7,16 +11,30 @@ namespace Switchyard.Returns.Application.Receipts;
 public sealed class ReceiveReturnHandler
 {
     private readonly IReturnEligibilityRepository _repository;
+    private readonly IReturnCommercialSnapshotRepository _commercialRepository;
+    private readonly IOutboxWriter _outboxWriter;
     private readonly IReturnsUnitOfWork _unitOfWork;
 
     public ReceiveReturnHandler(
         IReturnEligibilityRepository repository,
+        IReturnCommercialSnapshotRepository commercialRepository,
+        IOutboxWriter outboxWriter,
         IReturnsUnitOfWork unitOfWork)
     {
         _repository =
             repository ??
             throw new ArgumentNullException(
                 nameof(repository));
+
+        _commercialRepository =
+            commercialRepository ??
+            throw new ArgumentNullException(
+                nameof(commercialRepository));
+
+        _outboxWriter =
+            outboxWriter ??
+            throw new ArgumentNullException(
+                nameof(outboxWriter));
 
         _unitOfWork =
             unitOfWork ??
@@ -55,6 +73,64 @@ public sealed class ReceiveReturnHandler
 
         if (changed)
         {
+            var commercial =
+                await _commercialRepository.GetByOrderIdAsync(
+                    command.OrderId,
+                    cancellationToken) ??
+                throw new ReturnCommercialSnapshotMissingException(
+                    command.OrderId);
+
+            var receipt =
+                eligibility.ReturnReceipts.Single(
+                    candidate =>
+                        candidate.ReturnReceiptId ==
+                        command.ReturnReceiptId);
+
+            decimal refundAmount = 0;
+
+            foreach (var receiptLine in receipt.Lines)
+            {
+                var commercialLine =
+                    commercial.Lines.SingleOrDefault(
+                        line =>
+                            line.OrderLineId ==
+                            receiptLine.OrderLineId) ??
+                    throw new ReturnCommercialSnapshotMissingLineException(
+                        command.OrderId,
+                        receiptLine.OrderLineId);
+
+                refundAmount =
+                    checked(
+                        refundAmount +
+                        commercialLine.UnitPriceAmount *
+                        receiptLine.Quantity);
+            }
+
+            if (refundAmount > 0)
+            {
+                var refund =
+                    new RefundPaymentV1(
+                        command.ReturnReceiptId,
+                        command.OrderId,
+                        commercial.PaymentId,
+                        command.ReturnRequestId,
+                        command.ReturnReceiptId,
+                        refundAmount,
+                        commercial.Currency);
+
+                await _outboxWriter.AddAsync(
+                    new IntegrationMessageEnvelope(
+                        Guid.NewGuid(),
+                        RefundPaymentV1.MessageType,
+                        JsonSerializer.Serialize(
+                            refund,
+                            JsonSerializerOptions.Web),
+                        command.ReceivedAtUtc,
+                        command.OrderId,
+                        command.ReturnReceiptId),
+                    cancellationToken);
+            }
+
             await _repository.SaveAsync(
                 eligibility,
                 cancellationToken);
@@ -91,3 +167,24 @@ public sealed record ReceiveReturnResult(
     Guid ReturnReceiptId,
     ReturnRequestStatus Status,
     bool Replayed);
+
+public sealed class ReturnCommercialSnapshotMissingException : Exception
+{
+    public ReturnCommercialSnapshotMissingException(
+        Guid orderId)
+        : base(
+            $"Commercial snapshot for order '{orderId}' is required before receiving a return.")
+    {
+    }
+}
+
+public sealed class ReturnCommercialSnapshotMissingLineException : Exception
+{
+    public ReturnCommercialSnapshotMissingLineException(
+        Guid orderId,
+        Guid orderLineId)
+        : base(
+            $"Commercial snapshot for order '{orderId}' does not contain order line '{orderLineId}'.")
+    {
+    }
+}

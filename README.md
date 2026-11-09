@@ -82,6 +82,9 @@ Implemented so far:
 - return receipt replay is idempotent and receipt quantities cannot exceed outstanding authorisation
 - Ordering publishes a separate price-complete commercial snapshot without changing the existing OrderConfirmedV1 contract
 - Returns owns the PaymentId, currency and line unit-price snapshot required to value later partial refunds
+- accepted return receipts atomically stage quantity-valued payment refund commands through a Returns transactional outbox
+- Payments durably accepts refund requests only for definitely captured payments and prevents cumulative over-refunding
+- refund provider execution remains separate from durable refund intake
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox
