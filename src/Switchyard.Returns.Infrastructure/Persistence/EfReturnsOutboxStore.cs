@@ -46,11 +46,9 @@ public sealed class EfReturnsOutboxStore : IOutboxStore
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(
             batchSize);
 
-        if (leaseDuration <= TimeSpan.Zero)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(leaseDuration));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(
+            leaseDuration,
+            TimeSpan.Zero);
 
         _dbContext.ChangeTracker.Clear();
 
@@ -129,12 +127,9 @@ public sealed class EfReturnsOutboxStore : IOutboxStore
             lockToken,
             publishedAtUtc);
 
-        if (publishedAtUtc <
-            record.OccurredAtUtc)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(publishedAtUtc));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            publishedAtUtc,
+            record.OccurredAtUtc);
 
         record.PublishedAtUtc = publishedAtUtc;
         record.LockToken = null;
@@ -156,12 +151,9 @@ public sealed class EfReturnsOutboxStore : IOutboxStore
         string failureKind,
         CancellationToken cancellationToken)
     {
-        if (nextAttemptAtUtc <
-            failedAtUtc)
-        {
-            throw new ArgumentOutOfRangeException(
-                nameof(nextAttemptAtUtc));
-        }
+        ArgumentOutOfRangeException.ThrowIfLessThan(
+            nextAttemptAtUtc,
+            failedAtUtc);
 
         if (string.IsNullOrWhiteSpace(
                 failureKind))
