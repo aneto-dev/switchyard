@@ -6,9 +6,9 @@ The project focuses on order management, inventory reservation, payments, fulfil
 
 ## Current status
 
-**v0.7.0 Returns and refunds - in development**
+**v0.7.0 Returns and refunds - complete**
 
-The v0.2 Ordering core, v0.3 Inventory reservation lifecycle, v0.4 Payments, v0.5 reliable messaging and v0.6 Fulfilment/cancellation milestones are complete. v0.7 starts from delivered shipment facts and builds quantity-safe returns before financial refund execution.
+The v0.2 Ordering core, v0.3 Inventory reservation lifecycle, v0.4 Payments, v0.5 reliable messaging, v0.6 Fulfilment/cancellation and v0.7 Returns/refunds milestones are complete. v0.8 focuses on the Customer and Operations product experience.
 
 Implemented so far:
 
@@ -306,8 +306,8 @@ More projects are added only when they contain real implementation.
 - v0.4 - Payments and provider simulation - complete
 - v0.5 - Messaging, outbox/inbox and durable placement workflow - complete
 - v0.6 - Fulfilment and cancellation - complete
-- v0.7 - Returns and refunds - in progress
-- v0.8 - Customer and Operations product experience
+- v0.7 - Returns and refunds - complete
+- v0.8 - Customer and Operations product experience - in progress
 - v0.9 - Security, observability and production hardening
 - v1.0 - Public portfolio release
 
