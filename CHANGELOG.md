@@ -40,6 +40,16 @@ All notable Switchyard changes will be recorded here.
 - Ordering compensation completion after verified Inventory release or expiry outcomes.
 - Ordering reservation-validity gating before payment authorisation, with persisted expiry deadlines, legacy-safe schema evolution and earliest-deadline propagation on payment commands.
 
+## [0.7.0] - 2026-11-19
+
+### Added
+
+- Quantity-safe return eligibility, authorisation and receipt handling.
+- Returns-owned commercial pricing snapshots for partial refund valuation.
+- Durable refund initiation through the Returns outbox.
+- Provider-safe refund execution and reconciliation in Payments.
+- Returns-side projection of refunded, indeterminate and not-applied outcomes.
+
 ## [0.1.0] - 2026-09-16
 
 ### Added
