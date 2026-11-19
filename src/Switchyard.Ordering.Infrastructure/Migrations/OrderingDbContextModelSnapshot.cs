@@ -264,6 +264,12 @@ namespace Switchyard.Ordering.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_orders_order_number");
 
+                    b.HasIndex("CreatedAtUtc", "Id")
+                        .HasDatabaseName("ix_orders_created_at_utc_id");
+
+                    b.HasIndex("Status", "CreatedAtUtc", "Id")
+                        .HasDatabaseName("ix_orders_status_created_at_utc_id");
+
                     b.ToTable("orders", "ordering", t =>
                         {
                             t.HasCheckConstraint("ck_orders_order_number_not_blank", "btrim(order_number) <> ''");
