@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Switchyard.Api.Operations;
 using Switchyard.Api.Ordering;
+using Switchyard.Fulfilment.Application.Requests;
+using Switchyard.Fulfilment.Infrastructure.Persistence;
 using Switchyard.Ordering.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
@@ -80,6 +83,62 @@ public sealed class OperationsOrderEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task ReadsFulfilmentThroughOperationsBoundary()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        await using var postgres = await StartPostgresAsync(cancellationToken);
+        await ApplyMigrationsAsync(postgres.GetConnectionString(), cancellationToken);
+
+        var fulfilmentOptions = new DbContextOptionsBuilder<FulfilmentDbContext>()
+            .UseNpgsql(postgres.GetConnectionString())
+            .Options;
+
+        var orderId = Guid.NewGuid();
+        var lineId = Guid.NewGuid();
+        var confirmedAtUtc = new DateTimeOffset(2026, 11, 19, 10, 0, 0, TimeSpan.Zero);
+
+        await using (var fulfilment = new FulfilmentDbContext(fulfilmentOptions))
+        {
+            await fulfilment.Database.MigrateAsync(cancellationToken);
+
+            await new CreateFulfilmentHandler(new EfFulfilmentRequestRepository(fulfilment)).HandleAsync(
+                new CreateFulfilmentCommand(
+                    orderId, Guid.NewGuid(), "SW-00100077",
+                    [new CreateFulfilmentLine(lineId, "BIKE-001", "Road Bike", 1)], confirmedAtUtc),
+                cancellationToken);
+
+            await fulfilment.SaveChangesAsync(cancellationToken);
+        }
+
+        using var application = CreateApplication(postgres.GetConnectionString(), "Development");
+        using var client = application.CreateClient();
+
+        var view = await client.GetFromJsonAsync<FulfilmentView>(
+            $"/api/operations/orders/{orderId:D}/fulfilment", cancellationToken);
+
+        Assert.NotNull(view);
+        Assert.Equal(orderId, view.OrderId);
+        Assert.Equal("Pending", view.Status);
+        Assert.Equal(confirmedAtUtc, view.ConfirmedAtUtc);
+        Assert.Equal("NotRequested", view.Capture.Status);
+        Assert.Null(view.Capture.RequestId);
+
+        var line = Assert.Single(view.Lines);
+        Assert.Equal(lineId, line.OrderLineId);
+        Assert.Equal(1, line.Quantity);
+        Assert.Equal(0, line.PreparedQuantity);
+        Assert.Empty(view.Shipments);
+        Assert.Empty(view.Cancellations);
+
+        // Orders that Fulfilment has not accepted yet are a normal 404.
+        using var missingResponse = await client.GetAsync(
+            $"/api/operations/orders/{Guid.NewGuid():D}/fulfilment", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
     [Theory]
     [InlineData("status=Shipped", "status")]
     [InlineData("status=1", "status")]
@@ -115,9 +174,12 @@ public sealed class OperationsOrderEndpointTests
         using var listResponse = await client.GetAsync("/api/operations/orders", cancellationToken);
         using var detailResponse = await client.GetAsync(
             $"/api/operations/orders/{Guid.NewGuid():D}", cancellationToken);
+        using var fulfilmentResponse = await client.GetAsync(
+            $"/api/operations/orders/{Guid.NewGuid():D}/fulfilment", cancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, listResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, detailResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, fulfilmentResponse.StatusCode);
     }
 
     private const string UnusedConnectionString =
@@ -179,6 +241,8 @@ public sealed class OperationsOrderEndpointTests
                 {
                     services.PostConfigure<OrderingDatabaseOptions>(
                         options => options.ConnectionString = connectionString);
+                    services.PostConfigure<FulfilmentDatabaseOptions>(
+                        options => options.ConnectionString = connectionString);
                 });
             });
     }
@@ -215,4 +279,24 @@ public sealed class OperationsOrderEndpointTests
         Guid OrderLineId, string SkuCode, string ProductName, int Quantity, decimal UnitPriceAmount,
         decimal LineTotalAmount, string Currency, string? ReservationState, Guid? ReservationRequestId,
         Guid? ReservationId, DateTimeOffset? ReservationExpiresAtUtc);
+
+    private sealed record FulfilmentView(
+        Guid OrderId, string Status, DateTimeOffset ConfirmedAtUtc, Guid PaymentId, FulfilmentCapture Capture,
+        IReadOnlyList<FulfilmentLine> Lines, IReadOnlyList<FulfilmentShipment> Shipments,
+        IReadOnlyList<FulfilmentCancellation> Cancellations);
+
+    private sealed record FulfilmentCapture(
+        string Status, Guid? RequestId, DateTimeOffset? RequestedAtUtc, string? ProviderReference,
+        DateTimeOffset? ResolvedAtUtc);
+
+    private sealed record FulfilmentLine(
+        Guid OrderLineId, string SkuCode, string ProductName, int Quantity, int PreparedQuantity,
+        int CancelledQuantity);
+
+    private sealed record FulfilmentShipment(
+        Guid ShipmentId, int ItemQuantity, DateTimeOffset CreatedAtUtc, DateTimeOffset? DispatchedAtUtc,
+        DateTimeOffset? DeliveredAtUtc);
+
+    private sealed record FulfilmentCancellation(
+        Guid CancellationId, string Outcome, string? RejectionReason, int Quantity, DateTimeOffset RequestedAtUtc);
 }

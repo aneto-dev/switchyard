@@ -5,6 +5,8 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Switchyard.Api.Health;
 using Switchyard.Api.Operations;
+using Switchyard.Fulfilment.Application.Operations;
+using Switchyard.Fulfilment.Infrastructure.Persistence;
 using Switchyard.Api.Ordering;
 using Switchyard.Messaging;
 using Switchyard.Ordering.Application.Operations;
@@ -35,6 +37,27 @@ builder.Services.AddDbContext<OrderingDbContext>((serviceProvider, options) =>
     options.UseNpgsql(databaseOptions.ConnectionString);
 });
 
+// Fulfilment is only read by the development-only operations endpoints, so its connection
+// string is resolved on first use rather than validated at start-up.
+builder.Services.AddOptions<FulfilmentDatabaseOptions>()
+                .Configure<IConfiguration>((options, configuration) =>
+                {
+                    options.ConnectionString = configuration.GetConnectionString(FulfilmentDatabaseOptions.ConnectionStringName)
+                                               ?? string.Empty;
+                });
+
+builder.Services.AddDbContext<FulfilmentDbContext>((serviceProvider, options) =>
+{
+    var databaseOptions = serviceProvider.GetRequiredService<IOptions<FulfilmentDatabaseOptions>>().Value;
+
+    if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
+    {
+        throw new InvalidOperationException("Connection string 'Fulfilment' is required for operations endpoints.");
+    }
+
+    options.UseNpgsql(databaseOptions.ConnectionString);
+});
+
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
 builder.Services.AddScoped<IOrderRequestRepository, EfOrderRequestRepository>();
 builder.Services.AddScoped<IOrderPlacementProcessRepository, EfOrderPlacementProcessRepository>();
@@ -44,6 +67,7 @@ builder.Services.AddScoped<IOrderNumberGenerator, PostgresOrderNumberGenerator>(
 builder.Services.AddScoped<CreatePendingOrderHandler>();
 builder.Services.AddScoped<GetOrderHandler>();
 builder.Services.AddScoped<IOperationsOrderQueries, EfOperationsOrderQueries>();
+builder.Services.AddScoped<IOperationsFulfilmentQueries, EfOperationsFulfilmentQueries>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 var app = builder.Build();

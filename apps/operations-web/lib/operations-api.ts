@@ -65,6 +65,50 @@ export type OrderDetail = {
   lines: OrderLine[];
 };
 
+export type FulfilmentCapture = {
+  status: "NotRequested" | "Pending" | "Captured" | "Indeterminate" | "NotApplied";
+  requestId: string | null;
+  requestedAtUtc: string | null;
+  providerReference: string | null;
+  resolvedAtUtc: string | null;
+};
+
+export type FulfilmentLine = {
+  orderLineId: string;
+  skuCode: string;
+  productName: string;
+  quantity: number;
+  preparedQuantity: number;
+  cancelledQuantity: number;
+};
+
+export type FulfilmentShipment = {
+  shipmentId: string;
+  itemQuantity: number;
+  createdAtUtc: string;
+  dispatchedAtUtc: string | null;
+  deliveredAtUtc: string | null;
+};
+
+export type FulfilmentCancellation = {
+  cancellationId: string;
+  outcome: "Accepted" | "Rejected";
+  rejectionReason: string | null;
+  quantity: number;
+  requestedAtUtc: string;
+};
+
+export type OrderFulfilment = {
+  orderId: string;
+  status: "Pending" | "PartiallyPrepared" | "Prepared";
+  confirmedAtUtc: string;
+  paymentId: string;
+  capture: FulfilmentCapture;
+  lines: FulfilmentLine[];
+  shipments: FulfilmentShipment[];
+  cancellations: FulfilmentCancellation[];
+};
+
 export type OrderListFilter = {
   status?: OrderStatus;
   orderNumber?: string;
@@ -120,4 +164,9 @@ export async function listOrders(filter: OrderListFilter): Promise<OrderSummary[
 
 export function getOrder(orderId: string): Promise<OrderDetail | null> {
   return getJson<OrderDetail>(`/api/operations/orders/${encodeURIComponent(orderId)}`);
+}
+
+// Null until Fulfilment has accepted the confirmed order.
+export function getOrderFulfilment(orderId: string): Promise<OrderFulfilment | null> {
+  return getJson<OrderFulfilment>(`/api/operations/orders/${encodeURIComponent(orderId)}/fulfilment`);
 }
