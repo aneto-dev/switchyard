@@ -42,6 +42,11 @@ public sealed class OrderingDbContext : DbContext
         order.Property(record => record.CreatedAtUtc).HasColumnName("created_at_utc").IsRequired();
         order.Property(record => record.Status).HasColumnName("status").HasConversion<int>().IsRequired();
         order.HasIndex(record => record.OrderNumber).IsUnique().HasDatabaseName("ux_orders_order_number");
+        // Back the operations recent-order list, with and without a status filter.
+        order.HasIndex(record => new { record.CreatedAtUtc, record.Id })
+             .HasDatabaseName("ix_orders_created_at_utc_id");
+        order.HasIndex(record => new { record.Status, record.CreatedAtUtc, record.Id })
+             .HasDatabaseName("ix_orders_status_created_at_utc_id");
 
         var line = modelBuilder.Entity<OrderLineRecord>();
         line.ToTable(

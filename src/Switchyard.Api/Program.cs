@@ -4,8 +4,10 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Switchyard.Api.Health;
+using Switchyard.Api.Operations;
 using Switchyard.Api.Ordering;
 using Switchyard.Messaging;
+using Switchyard.Ordering.Application.Operations;
 using Switchyard.Ordering.Application.Orders;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Infrastructure.Persistence;
@@ -41,6 +43,7 @@ builder.Services.AddScoped<IOutboxWriter, EfOrderingOutboxStore>();
 builder.Services.AddScoped<IOrderNumberGenerator, PostgresOrderNumberGenerator>();
 builder.Services.AddScoped<CreatePendingOrderHandler>();
 builder.Services.AddScoped<GetOrderHandler>();
+builder.Services.AddScoped<IOperationsOrderQueries, EfOperationsOrderQueries>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 var app = builder.Build();
@@ -58,6 +61,13 @@ app.MapGet("/", () => Results.Ok(new
 }));
 
 app.MapOrderingEndpoints();
+
+// Operations endpoints have no authentication or role checks yet (ADR-0004 operations roles
+// arrive with the security milestone), so they are only mapped for local development.
+if (app.Environment.IsDevelopment())
+{
+    app.MapOperationsOrderEndpoints();
+}
 
 app.MapHealthChecks("/health/live", new HealthCheckOptions
 {

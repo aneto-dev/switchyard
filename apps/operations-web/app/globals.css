@@ -24,6 +24,9 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-a {
-  color: inherit;
+/* Layered so Tailwind colour utilities on links still apply. */
+@layer base {
+  a {
+    color: inherit;
+  }
 }
