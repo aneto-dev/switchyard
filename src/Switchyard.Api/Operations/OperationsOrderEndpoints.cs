@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Switchyard.Fulfilment.Application.Operations;
 using Switchyard.Ordering.Application.Operations;
 using Switchyard.Ordering.Domain.Orders;
 
@@ -20,6 +21,9 @@ public static class OperationsOrderEndpoints
 
         group.MapGet("/{orderId:guid}", GetOrderAsync)
              .WithName("GetOperationsOrder");
+
+        group.MapGet("/{orderId:guid}/fulfilment", GetFulfilmentAsync)
+             .WithName("GetOperationsOrderFulfilment");
 
         return endpoints;
     }
@@ -82,6 +86,53 @@ public static class OperationsOrderEndpoints
                              .ToArray();
 
         return TypedResults.Ok(response);
+    }
+
+    // Read from Fulfilment's own tables. 404 means Fulfilment has not accepted the order yet,
+    // which is normal until the order is confirmed.
+    private static async Task<Results<Ok<OperationsFulfilmentResponse>, NotFound>> GetFulfilmentAsync(
+        Guid orderId, IOperationsFulfilmentQueries queries, CancellationToken cancellationToken)
+    {
+        var fulfilment = await queries.GetByOrderIdAsync(orderId, cancellationToken);
+
+        if (fulfilment is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return TypedResults.Ok(new OperationsFulfilmentResponse(
+            fulfilment.OrderId,
+            fulfilment.Status.ToString(),
+            fulfilment.ConfirmedAtUtc,
+            fulfilment.PaymentId,
+            new OperationsFulfilmentCaptureResponse(
+                fulfilment.Capture.Status.ToString(),
+                fulfilment.Capture.RequestId,
+                fulfilment.Capture.RequestedAtUtc,
+                fulfilment.Capture.ProviderReference,
+                fulfilment.Capture.ResolvedAtUtc),
+            fulfilment.Lines.Select(line => new OperationsFulfilmentLineResponse(
+                                line.OrderLineId,
+                                line.SkuCode,
+                                line.ProductName,
+                                line.Quantity,
+                                line.PreparedQuantity,
+                                line.CancelledQuantity))
+                            .ToArray(),
+            fulfilment.Shipments.Select(shipment => new OperationsFulfilmentShipmentResponse(
+                                    shipment.ShipmentId,
+                                    shipment.ItemQuantity,
+                                    shipment.CreatedAtUtc,
+                                    shipment.DispatchedAtUtc,
+                                    shipment.DeliveredAtUtc))
+                                .ToArray(),
+            fulfilment.Cancellations.Select(cancellation => new OperationsFulfilmentCancellationResponse(
+                                        cancellation.CancellationId,
+                                        cancellation.Outcome.ToString(),
+                                        cancellation.RejectionReason?.ToString(),
+                                        cancellation.Quantity,
+                                        cancellation.RequestedAtUtc))
+                                    .ToArray()));
     }
 
     private static async Task<Results<Ok<OperationsOrderDetailResponse>, NotFound>> GetOrderAsync(

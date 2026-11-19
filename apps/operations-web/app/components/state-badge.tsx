@@ -8,8 +8,16 @@ const attentionStates = new Set([
   "CompensatingInventory",
   "AwaitingRelease",
 ]);
-const failedStates = new Set(["Failed", "Rejected", "Expired"]);
-const settledStates = new Set(["Confirmed", "Authorised", "Reserved", "Released"]);
+const failedStates = new Set(["Failed", "Rejected", "Expired", "NotApplied"]);
+const settledStates = new Set([
+  "Confirmed",
+  "Authorised",
+  "Captured",
+  "Reserved",
+  "Released",
+  "Prepared",
+  "Delivered",
+]);
 
 function toneFor(state: string): string {
   if (attentionStates.has(state)) {

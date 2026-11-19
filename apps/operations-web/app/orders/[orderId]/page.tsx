@@ -1,32 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Field, Identifier } from "@/app/components/detail-fields";
 import { StateBadge } from "@/app/components/state-badge";
 import { formatDateTime, formatMoney, humanise } from "@/lib/format";
-import { getOrder } from "@/lib/operations-api";
+import { getOrder, getOrderFulfilment } from "@/lib/operations-api";
+import { FulfilmentSection } from "./fulfilment-section";
 
 type Params = Promise<{ orderId: string }>;
 
 export const metadata: Metadata = { title: "Order" };
 
 const guidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-[var(--muted)]">{label}</dt>
-      <dd className="mt-1 text-sm">{children}</dd>
-    </div>
-  );
-}
-
-function Identifier({ value }: { value: string | null }) {
-  return value ? (
-    <span className="break-all font-mono text-xs">{value}</span>
-  ) : (
-    <span className="text-[var(--muted)]">—</span>
-  );
-}
 
 export default async function OrderPage({ params }: { params: Params }) {
   const { orderId } = await params;
@@ -35,7 +20,8 @@ export default async function OrderPage({ params }: { params: Params }) {
     notFound();
   }
 
-  const order = await getOrder(orderId);
+  // Each context answers from its own data; fetching in parallel keeps the page to one round trip.
+  const [order, fulfilment] = await Promise.all([getOrder(orderId), getOrderFulfilment(orderId)]);
 
   if (!order) {
     notFound();
@@ -152,10 +138,11 @@ export default async function OrderPage({ params }: { params: Params }) {
             </tbody>
           </table>
         </div>
-        <p className="text-xs text-[var(--muted)]">
-          Payment capture, fulfilment and return state are not shown here yet.
-        </p>
       </section>
+
+      <FulfilmentSection fulfilment={fulfilment} />
+
+      <p className="text-xs text-[var(--muted)]">Return and refund state are not shown here yet.</p>
     </div>
   );
 }
