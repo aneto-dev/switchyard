@@ -17,6 +17,8 @@ const settledStates = new Set([
   "Released",
   "Prepared",
   "Delivered",
+  "Received",
+  "Succeeded",
 ]);
 
 function toneFor(state: string): string {

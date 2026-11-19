@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Switchyard.Fulfilment.Application.Operations;
 using Switchyard.Ordering.Application.Operations;
 using Switchyard.Ordering.Domain.Orders;
+using Switchyard.Returns.Application.Operations;
 
 namespace Switchyard.Api.Operations;
 
@@ -24,6 +25,9 @@ public static class OperationsOrderEndpoints
 
         group.MapGet("/{orderId:guid}/fulfilment", GetFulfilmentAsync)
              .WithName("GetOperationsOrderFulfilment");
+
+        group.MapGet("/{orderId:guid}/returns", GetReturnsAsync)
+             .WithName("GetOperationsOrderReturns");
 
         return endpoints;
     }
@@ -133,6 +137,47 @@ public static class OperationsOrderEndpoints
                                         cancellation.Quantity,
                                         cancellation.RequestedAtUtc))
                                     .ToArray()));
+    }
+
+    // Read from Returns' own tables. 404 means no shipment for the order has been delivered yet.
+    private static async Task<Results<Ok<OperationsReturnsResponse>, NotFound>> GetReturnsAsync(
+        Guid orderId, IOperationsReturnsQueries queries, CancellationToken cancellationToken)
+    {
+        var returns = await queries.GetByOrderIdAsync(orderId, cancellationToken);
+
+        if (returns is null)
+        {
+            return TypedResults.NotFound();
+        }
+
+        return TypedResults.Ok(new OperationsReturnsResponse(
+            returns.OrderId,
+            returns.Lines.Select(line => new OperationsReturnLineResponse(
+                             line.OrderLineId,
+                             line.DeliveredQuantity,
+                             line.AuthorisedReturnQuantity,
+                             line.ReturnedQuantity))
+                         .ToArray(),
+            returns.Requests.Select(request => new OperationsReturnRequestResponse(
+                                request.ReturnRequestId,
+                                request.Status.ToString(),
+                                request.Quantity,
+                                request.RequestedAtUtc,
+                                request.Receipts.Select(receipt => new OperationsReturnReceiptResponse(
+                                                    receipt.ReturnReceiptId,
+                                                    receipt.Quantity,
+                                                    receipt.ReceivedAtUtc,
+                                                    receipt.Refund is null
+                                                        ? null
+                                                        : new OperationsReturnRefundResponse(
+                                                            receipt.Refund.Status.ToString(),
+                                                            receipt.Refund.Amount,
+                                                            receipt.Refund.Currency,
+                                                            receipt.Refund.ProviderReference,
+                                                            receipt.Refund.RequestedAtUtc,
+                                                            receipt.Refund.UpdatedAtUtc)))
+                                                .ToArray()))
+                            .ToArray()));
     }
 
     private static async Task<Results<Ok<OperationsOrderDetailResponse>, NotFound>> GetOrderAsync(

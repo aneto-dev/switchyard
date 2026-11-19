@@ -109,6 +109,44 @@ export type OrderFulfilment = {
   cancellations: FulfilmentCancellation[];
 };
 
+export type ReturnRefund = {
+  status: "Pending" | "Indeterminate" | "Succeeded" | "NotApplied";
+  amount: number;
+  currency: string;
+  providerReference: string | null;
+  requestedAtUtc: string;
+  updatedAtUtc: string;
+};
+
+export type ReturnReceipt = {
+  returnReceiptId: string;
+  quantity: number;
+  receivedAtUtc: string;
+  refund: ReturnRefund | null;
+};
+
+export type ReturnRequest = {
+  returnRequestId: string;
+  status: "Authorised" | "PartiallyReceived" | "Received";
+  quantity: number;
+  requestedAtUtc: string;
+  receipts: ReturnReceipt[];
+};
+
+export type ReturnLine = {
+  orderLineId: string;
+  deliveredQuantity: number;
+  // Authorised but not yet received.
+  authorisedReturnQuantity: number;
+  returnedQuantity: number;
+};
+
+export type OrderReturns = {
+  orderId: string;
+  lines: ReturnLine[];
+  requests: ReturnRequest[];
+};
+
 export type OrderListFilter = {
   status?: OrderStatus;
   orderNumber?: string;
@@ -169,4 +207,9 @@ export function getOrder(orderId: string): Promise<OrderDetail | null> {
 // Null until Fulfilment has accepted the confirmed order.
 export function getOrderFulfilment(orderId: string): Promise<OrderFulfilment | null> {
   return getJson<OrderFulfilment>(`/api/operations/orders/${encodeURIComponent(orderId)}/fulfilment`);
+}
+
+// Null until a shipment for the order has been delivered.
+export function getOrderReturns(orderId: string): Promise<OrderReturns | null> {
+  return getJson<OrderReturns>(`/api/operations/orders/${encodeURIComponent(orderId)}/returns`);
 }
