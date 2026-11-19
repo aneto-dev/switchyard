@@ -66,6 +66,7 @@ public sealed class OperationsOrderEndpointTests
         Assert.NotNull(detail.Placement);
         Assert.Equal("AwaitingInventory", detail.Placement.State);
         Assert.Null(detail.Placement.PaymentAuthorisationRequestId);
+        Assert.Null(detail.Payment);
 
         var line = Assert.Single(detail.Lines);
         Assert.Equal("BIKE-001", line.SkuCode);
@@ -200,7 +201,12 @@ public sealed class OperationsOrderEndpointTests
 
     private sealed record OrderDetail(
         Guid OrderId, string OrderNumber, string Status, decimal TotalAmount, string Currency,
-        DateTimeOffset CreatedAtUtc, Placement? Placement, IReadOnlyList<OrderLine> Lines);
+        DateTimeOffset CreatedAtUtc, Placement? Placement, Payment? Payment, IReadOnlyList<OrderLine> Lines);
+
+    private sealed record Payment(
+        string Outcome, Guid RequestId, Guid? PaymentId, decimal Amount, string Currency,
+        string? ProviderReference, string? Reason, int? ReconciliationAttemptCount,
+        DateTimeOffset OutcomeAtUtc, DateTimeOffset RecordedAtUtc);
 
     private sealed record Placement(
         string State, DateTimeOffset StartedAtUtc, DateTimeOffset UpdatedAtUtc, Guid? PaymentAuthorisationRequestId);

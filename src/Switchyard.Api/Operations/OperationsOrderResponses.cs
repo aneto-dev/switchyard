@@ -19,6 +19,7 @@ public sealed record OperationsOrderDetailResponse(
     string Currency,
     DateTimeOffset CreatedAtUtc,
     OperationsOrderPlacementResponse? Placement,
+    OperationsOrderPaymentResponse? Payment,
     IReadOnlyList<OperationsOrderLineResponse> Lines);
 
 public sealed record OperationsOrderPlacementResponse(
@@ -26,6 +27,18 @@ public sealed record OperationsOrderPlacementResponse(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     Guid? PaymentAuthorisationRequestId);
+
+public sealed record OperationsOrderPaymentResponse(
+    string Outcome,
+    Guid RequestId,
+    Guid? PaymentId,
+    decimal Amount,
+    string Currency,
+    string? ProviderReference,
+    string? Reason,
+    int? ReconciliationAttemptCount,
+    DateTimeOffset OutcomeAtUtc,
+    DateTimeOffset RecordedAtUtc);
 
 public sealed record OperationsOrderLineResponse(
     Guid OrderLineId,

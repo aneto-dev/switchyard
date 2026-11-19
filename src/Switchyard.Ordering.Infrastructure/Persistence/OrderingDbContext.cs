@@ -20,6 +20,9 @@ public sealed class OrderingDbContext : DbContext
     internal DbSet<OrderPlacementProcessRecord> OrderPlacementProcesses =>
         Set<OrderPlacementProcessRecord>();
 
+    internal DbSet<OrderPaymentAuthorisationRecord> OrderPaymentAuthorisations =>
+        Set<OrderPaymentAuthorisationRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ArgumentNullException.ThrowIfNull(modelBuilder);
@@ -203,6 +206,54 @@ public sealed class OrderingDbContext : DbContext
                         .WithOne()
                         .HasForeignKey(record => record.OrderId)
                         .OnDelete(DeleteBehavior.Cascade);
+
+        var paymentAuthorisation = modelBuilder.Entity<OrderPaymentAuthorisationRecord>();
+        paymentAuthorisation.ToTable(
+            "order_payment_authorisations",
+            "ordering",
+            table =>
+            {
+                table.HasCheckConstraint("ck_order_payment_authorisations_outcome", "outcome BETWEEN 0 AND 3");
+                table.HasCheckConstraint("ck_order_payment_authorisations_amount", "amount >= 0");
+                table.HasCheckConstraint("ck_order_payment_authorisations_currency", "char_length(currency) = 3");
+                // Only a failed authorisation can lack a payment: Payments may reject the
+                // request before creating one.
+                table.HasCheckConstraint(
+                    "ck_order_payment_authorisations_payment_shape",
+                    "payment_id IS NOT NULL OR outcome = 3");
+                table.HasCheckConstraint(
+                    "ck_order_payment_authorisations_attempts",
+                    "reconciliation_attempt_count IS NULL OR reconciliation_attempt_count >= 0");
+            });
+        paymentAuthorisation.HasKey(record => record.OrderId).HasName("pk_order_payment_authorisations");
+        paymentAuthorisation.Property(record => record.OrderId).HasColumnName("order_id");
+        paymentAuthorisation.Property(record => record.RequestId).HasColumnName("request_id");
+        paymentAuthorisation.Property(record => record.PaymentId).HasColumnName("payment_id");
+        paymentAuthorisation.Property(record => record.Outcome)
+                            .HasColumnName("outcome")
+                            .HasConversion<int>()
+                            .IsRequired();
+        paymentAuthorisation.Property(record => record.Amount).HasColumnName("amount").HasColumnType("numeric");
+        paymentAuthorisation.Property(record => record.Currency)
+                            .HasColumnName("currency")
+                            .HasMaxLength(3)
+                            .IsRequired();
+        paymentAuthorisation.Property(record => record.ProviderReference)
+                            .HasColumnName("provider_reference")
+                            .HasMaxLength(100);
+        paymentAuthorisation.Property(record => record.Reason).HasColumnName("reason").HasMaxLength(100);
+        paymentAuthorisation.Property(record => record.ReconciliationAttemptCount)
+                            .HasColumnName("reconciliation_attempt_count");
+        paymentAuthorisation.Property(record => record.OutcomeAtUtc).HasColumnName("outcome_at_utc").IsRequired();
+        paymentAuthorisation.Property(record => record.RecordedAtUtc).HasColumnName("recorded_at_utc").IsRequired();
+        paymentAuthorisation.HasIndex(record => record.RequestId)
+                            .IsUnique()
+                            .HasDatabaseName("ux_order_payment_authorisations_request_id");
+        paymentAuthorisation.HasOne<OrderPlacementProcessRecord>()
+                            .WithOne()
+                            .HasForeignKey<OrderPaymentAuthorisationRecord>(record => record.OrderId)
+                            .HasConstraintName("FK_order_payment_authorisations_order_placement_processes")
+                            .OnDelete(DeleteBehavior.Cascade);
 
         var outbox = modelBuilder.Entity<OutboxMessageRecord>();
         outbox.ToTable(

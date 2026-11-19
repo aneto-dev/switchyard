@@ -148,6 +148,77 @@ namespace Switchyard.Ordering.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Switchyard.Ordering.Infrastructure.Persistence.OrderPaymentAuthorisationRecord", b =>
+                {
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("numeric")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<int>("Outcome")
+                        .HasColumnType("integer")
+                        .HasColumnName("outcome");
+
+                    b.Property<DateTimeOffset>("OutcomeAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("outcome_at_utc");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<string>("ProviderReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("provider_reference");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reason");
+
+                    b.Property<int?>("ReconciliationAttemptCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("reconciliation_attempt_count");
+
+                    b.Property<DateTimeOffset>("RecordedAtUtc")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at_utc");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("OrderId")
+                        .HasName("pk_order_payment_authorisations");
+
+                    b.HasIndex("RequestId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_order_payment_authorisations_request_id");
+
+                    b.ToTable("order_payment_authorisations", "ordering", t =>
+                        {
+                            t.HasCheckConstraint("ck_order_payment_authorisations_amount", "amount >= 0");
+
+                            t.HasCheckConstraint("ck_order_payment_authorisations_attempts", "reconciliation_attempt_count IS NULL OR reconciliation_attempt_count >= 0");
+
+                            t.HasCheckConstraint("ck_order_payment_authorisations_currency", "char_length(currency) = 3");
+
+                            t.HasCheckConstraint("ck_order_payment_authorisations_outcome", "outcome BETWEEN 0 AND 3");
+
+                            t.HasCheckConstraint("ck_order_payment_authorisations_payment_shape", "payment_id IS NOT NULL OR outcome = 3");
+                        });
+                });
+
             modelBuilder.Entity("Switchyard.Ordering.Infrastructure.Persistence.OrderPlacementLineRecord", b =>
                 {
                     b.Property<Guid>("OrderId")
@@ -409,6 +480,16 @@ namespace Switchyard.Ordering.Infrastructure.Migrations
                         .HasForeignKey("OrderId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Switchyard.Ordering.Infrastructure.Persistence.OrderPaymentAuthorisationRecord", b =>
+                {
+                    b.HasOne("Switchyard.Ordering.Infrastructure.Persistence.OrderPlacementProcessRecord", null)
+                        .WithOne()
+                        .HasForeignKey("Switchyard.Ordering.Infrastructure.Persistence.OrderPaymentAuthorisationRecord", "OrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_order_payment_authorisations_order_placement_processes");
                 });
 
             modelBuilder.Entity("Switchyard.Ordering.Infrastructure.Persistence.OrderPlacementLineRecord", b =>

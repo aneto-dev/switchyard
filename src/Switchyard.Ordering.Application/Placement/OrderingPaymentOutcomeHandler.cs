@@ -10,14 +10,18 @@ namespace Switchyard.Ordering.Application.Placement;
 
 public sealed class OrderingPaymentOutcomeHandler
 {
+    private const int MaxPaymentTextLength = 100;
+
     private readonly IOrderRepository _orderRepository;
     private readonly IOrderPlacementProcessRepository _processRepository;
+    private readonly IOrderPaymentAuthorisationRepository _authorisationRepository;
     private readonly IOutboxWriter _outboxWriter;
     private readonly TimeProvider _timeProvider;
 
     public OrderingPaymentOutcomeHandler(
         IOrderRepository orderRepository,
         IOrderPlacementProcessRepository processRepository,
+        IOrderPaymentAuthorisationRepository authorisationRepository,
         IOutboxWriter outboxWriter,
         TimeProvider timeProvider)
     {
@@ -28,6 +32,10 @@ public sealed class OrderingPaymentOutcomeHandler
         _processRepository =
             processRepository ??
             throw new ArgumentNullException(nameof(processRepository));
+
+        _authorisationRepository =
+            authorisationRepository ??
+            throw new ArgumentNullException(nameof(authorisationRepository));
 
         _outboxWriter =
             outboxWriter ??
@@ -70,6 +78,22 @@ public sealed class OrderingPaymentOutcomeHandler
             process.RecordPaymentAuthorised(
                 outcome.RequestId,
                 handledAtUtc);
+
+        // Record what Payments reported even when the placement cannot advance on it, such
+        // as an authorisation that arrives after the reservation deadline.
+        await RecordAuthorisationAsync(
+            process,
+            new PaymentAuthorisationObservation(
+                outcome.RequestId,
+                outcome.PaymentId,
+                PaymentAuthorisationOutcome.Authorised,
+                outcome.Amount,
+                outcome.Currency,
+                outcome.ProviderReference,
+                Reason: null,
+                ReconciliationAttemptCount: null,
+                outcome.AuthorisedAtUtc),
+            cancellationToken);
 
         if (!transition.Changed)
         {
@@ -171,6 +195,20 @@ public sealed class OrderingPaymentOutcomeHandler
                 outcome.RequestId,
                 handledAtUtc);
 
+        await RecordAuthorisationAsync(
+            process,
+            new PaymentAuthorisationObservation(
+                outcome.RequestId,
+                outcome.PaymentId,
+                PaymentAuthorisationOutcome.Failed,
+                outcome.Amount,
+                outcome.Currency,
+                outcome.ProviderReference,
+                outcome.Reason,
+                ReconciliationAttemptCount: null,
+                outcome.FailedAtUtc),
+            cancellationToken);
+
         if (!transition.Changed)
         {
             EnsureOrderMatchesProcess(
@@ -237,6 +275,20 @@ public sealed class OrderingPaymentOutcomeHandler
                 outcome.RequestId,
                 _timeProvider.GetUtcNow());
 
+        await RecordAuthorisationAsync(
+            process,
+            new PaymentAuthorisationObservation(
+                outcome.RequestId,
+                outcome.PaymentId,
+                PaymentAuthorisationOutcome.Indeterminate,
+                outcome.Amount,
+                outcome.Currency,
+                outcome.ProviderReference,
+                Reason: null,
+                ReconciliationAttemptCount: null,
+                outcome.IndeterminateAtUtc),
+            cancellationToken);
+
         if (!transition.Changed)
         {
             EnsureOrderMatchesProcess(
@@ -286,6 +338,20 @@ public sealed class OrderingPaymentOutcomeHandler
             process.RecordPaymentNeedsAttention(
                 outcome.RequestId,
                 _timeProvider.GetUtcNow());
+
+        await RecordAuthorisationAsync(
+            process,
+            new PaymentAuthorisationObservation(
+                outcome.RequestId,
+                outcome.PaymentId,
+                PaymentAuthorisationOutcome.NeedsAttention,
+                outcome.Amount,
+                outcome.Currency,
+                outcome.ProviderReference,
+                outcome.Reason,
+                outcome.ReconciliationAttemptCount,
+                outcome.ObservedAtUtc),
+            cancellationToken);
 
         if (!transition.Changed)
         {
@@ -402,6 +468,55 @@ public sealed class OrderingPaymentOutcomeHandler
                     process.OrderId.Value,
                     causationId),
                 cancellationToken);
+        }
+    }
+
+    private async Task RecordAuthorisationAsync(
+        OrderPlacementProcess process,
+        PaymentAuthorisationObservation observation,
+        CancellationToken cancellationToken)
+    {
+        EnsureFitsColumn(observation.ProviderReference, "provider reference");
+        EnsureFitsColumn(observation.Reason, "reason");
+
+        var recordedAtUtc =
+            _timeProvider.GetUtcNow();
+
+        var existing =
+            await _authorisationRepository.GetByOrderIdAsync(
+                process.OrderId,
+                cancellationToken);
+
+        if (existing is null)
+        {
+            await _authorisationRepository.AddAsync(
+                OrderPaymentAuthorisation.Start(
+                    process.OrderId,
+                    observation,
+                    recordedAtUtc),
+                cancellationToken);
+
+            return;
+        }
+
+        if (existing.Apply(
+                observation,
+                recordedAtUtc))
+        {
+            await _authorisationRepository.UpdateAsync(
+                existing,
+                cancellationToken);
+        }
+    }
+
+    private static void EnsureFitsColumn(
+        string? value,
+        string name)
+    {
+        if (value is { Length: > MaxPaymentTextLength })
+        {
+            throw new OrderPlacementPaymentOutcomeException(
+                $"Payment outcome {name} cannot exceed {MaxPaymentTextLength} characters.");
         }
     }
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { StateBadge } from "@/app/components/state-badge";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { formatDateTime, formatMoney, humanise } from "@/lib/format";
 import { getOrder } from "@/lib/operations-api";
 
 type Params = Promise<{ orderId: string }>;
@@ -84,6 +84,34 @@ export default async function OrderPage({ params }: { params: Params }) {
       </section>
 
       <section className="space-y-3">
+        <h2 className="text-lg font-semibold">Payment authorisation</h2>
+        {order.payment ? (
+          <dl className="grid gap-5 rounded-lg border border-[var(--border)] p-5 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Outcome">
+              <StateBadge state={order.payment.outcome} />
+            </Field>
+            <Field label="Reported by Payments">{formatDateTime(order.payment.outcomeAtUtc)}</Field>
+            <Field label="Amount">{formatMoney(order.payment.amount, order.payment.currency)}</Field>
+            <Field label="Reason">{humanise(order.payment.reason)}</Field>
+            <Field label="Payment ID">
+              <Identifier value={order.payment.paymentId} />
+            </Field>
+            <Field label="Provider reference">
+              <Identifier value={order.payment.providerReference} />
+            </Field>
+            <Field label="Reconciliation attempts">{order.payment.reconciliationAttemptCount ?? "—"}</Field>
+            <Field label="Recorded by Ordering">{formatDateTime(order.payment.recordedAtUtc)}</Field>
+          </dl>
+        ) : (
+          <p className="rounded-lg border border-[var(--border)] px-5 py-4 text-sm text-[var(--muted)]">
+            {order.placement?.paymentAuthorisationRequestId
+              ? "No authorisation outcome recorded. Payments has not reported one yet, or it was reported before Ordering started recording outcomes."
+              : "Payment authorisation has not been requested."}
+          </p>
+        )}
+      </section>
+
+      <section className="space-y-3">
         <h2 className="text-lg font-semibold">Lines and reservations</h2>
         <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
           <table className="w-full min-w-[60rem] text-left text-sm">
@@ -125,7 +153,7 @@ export default async function OrderPage({ params }: { params: Params }) {
           </table>
         </div>
         <p className="text-xs text-[var(--muted)]">
-          Payment, fulfilment and return state are owned by other contexts and are not shown here yet.
+          Payment capture, fulfilment and return state are not shown here yet.
         </p>
       </section>
     </div>

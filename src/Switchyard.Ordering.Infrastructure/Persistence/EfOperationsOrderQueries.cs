@@ -95,6 +95,22 @@ public sealed class EfOperationsOrderQueries : IOperationsOrderQueries
             .Include(candidate => candidate.Lines)
             .SingleOrDefaultAsync(candidate => candidate.OrderId == orderId, cancellationToken);
 
+        var payment = await _dbContext.OrderPaymentAuthorisations
+            .AsNoTracking()
+            .Where(candidate => candidate.OrderId == orderId)
+            .Select(candidate => new OperationsOrderPayment(
+                candidate.Outcome,
+                candidate.RequestId,
+                candidate.PaymentId,
+                candidate.Amount,
+                candidate.Currency,
+                candidate.ProviderReference,
+                candidate.Reason,
+                candidate.ReconciliationAttemptCount,
+                candidate.OutcomeAtUtc,
+                candidate.RecordedAtUtc))
+            .SingleOrDefaultAsync(cancellationToken);
+
         var placementLines = process?.Lines.ToDictionary(line => line.OrderLineId)
                              ?? new Dictionary<Guid, OrderPlacementLineRecord>();
 
@@ -135,6 +151,7 @@ public sealed class EfOperationsOrderQueries : IOperationsOrderQueries
             lines[0].Currency,
             order.CreatedAtUtc,
             placement,
+            payment,
             lines);
     }
 }

@@ -90,6 +90,21 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             OrderStatus.Confirmed,
             order.Status);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Authorised, authorisation.Outcome);
+        Assert.Equal(setup.PaymentRequestId, authorisation.RequestId);
+        Assert.Equal(setup.PaymentId, authorisation.PaymentId);
+        Assert.Equal(setup.Amount, authorisation.Amount);
+        Assert.Equal("sim-auth-001", authorisation.ProviderReference);
+        Assert.Equal(now.AddSeconds(15), authorisation.OutcomeAtUtc);
+        Assert.Equal(now.AddSeconds(20), authorisation.RecordedAtUtc);
         Assert.Empty(
             await ReadReleaseCommandsAsync(
                 connectionString,
@@ -274,6 +289,18 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             setup.Reservations.Count,
             releases.Count);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Failed, authorisation.Outcome);
+        Assert.Equal(setup.PaymentId, authorisation.PaymentId);
+        Assert.Equal("sim-decline-001", authorisation.ProviderReference);
+        Assert.Equal(PaymentAuthorisationFailedV1.DeclinedReason, authorisation.Reason);
     }
 
     [Fact]
@@ -338,6 +365,18 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 setup.OrderId,
                 cancellationToken)).Count);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Failed, authorisation.Outcome);
+        Assert.Null(authorisation.PaymentId);
+        Assert.Null(authorisation.ProviderReference);
+        Assert.Equal(PaymentAuthorisationFailedV1.ReservationExpiredReason, authorisation.Reason);
     }
 
     [Fact]
@@ -394,6 +433,16 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             OrderPlacementState.PaymentIndeterminate,
             paused.State);
+
+        var pausedAuthorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(pausedAuthorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Indeterminate, pausedAuthorisation.Outcome);
+        Assert.Null(pausedAuthorisation.ProviderReference);
         Assert.Empty(
             await ReadReleaseCommandsAsync(
                 connectionString,
@@ -424,6 +473,18 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             OrderStatus.Confirmed,
             order.Status);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Authorised, authorisation.Outcome);
+        Assert.Equal(setup.PaymentId, authorisation.PaymentId);
+        Assert.Equal("sim-auth-001", authorisation.ProviderReference);
+        Assert.Equal(now.AddSeconds(25), authorisation.OutcomeAtUtc);
     }
 
     [Fact]
@@ -502,6 +563,12 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 setup.OrderId,
                 cancellationToken));
+
+        Assert.Null(
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken));
     }
 
 
@@ -576,6 +643,19 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 setup.OrderId,
                 cancellationToken));
+
+        // Payments' authorisation is still recorded so operators can see why the placement
+        // needs attention: the money is authorised but the stock reservation lapsed.
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Authorised, authorisation.Outcome);
+        Assert.Equal(setup.PaymentId, authorisation.PaymentId);
     }
 
     [Fact]
@@ -653,6 +733,20 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 connectionString,
                 setup.OrderId,
                 cancellationToken));
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.NeedsAttention, authorisation.Outcome);
+        Assert.Equal(
+            PaymentAuthorisationNeedsAttentionV1.ReconciliationExhaustedReason,
+            authorisation.Reason);
+        Assert.Equal(3, authorisation.ReconciliationAttemptCount);
+        Assert.Equal(now.AddSeconds(25), authorisation.OutcomeAtUtc);
     }
 
     [Fact]
@@ -780,6 +874,82 @@ public sealed class OrderPlacementPaymentOutcomeTests
     }
 
     [Fact]
+    public async Task AuthorisedOutcomeForDifferentPaymentIsRejectedWithoutChangingOrderingState()
+    {
+        var cancellationToken =
+            TestContext.Current.CancellationToken;
+
+        await using var postgres =
+            await StartPostgresAsync(
+                cancellationToken);
+
+        var connectionString =
+            postgres.GetConnectionString();
+
+        await ApplyMigrationsAsync(
+            connectionString,
+            cancellationToken);
+
+        var now =
+            new DateTimeOffset(
+                2026,
+                10,
+                18,
+                11,
+                40,
+                0,
+                TimeSpan.Zero);
+
+        var setup =
+            await CreateAwaitingPaymentOrderAsync(
+                connectionString,
+                now,
+                "payment-conflicting-identity",
+                cancellationToken);
+
+        var consumer =
+            CreateConsumer(
+                connectionString,
+                now.AddSeconds(30));
+
+        await consumer.ConsumeAsync(
+            CreateIndeterminateEnvelope(
+                setup,
+                now.AddSeconds(15)),
+            cancellationToken);
+
+        await Assert.ThrowsAsync<NonRetryableIntegrationMessageException>(
+            () =>
+                consumer.ConsumeAsync(
+                    CreateAuthorisedEnvelope(
+                        setup with
+                        {
+                            PaymentId = Guid.NewGuid()
+                        },
+                        now.AddSeconds(25)),
+                    cancellationToken));
+
+        var process =
+            await ReadProcessAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.Equal(
+            OrderPlacementState.PaymentIndeterminate,
+            process.State);
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Indeterminate, authorisation.Outcome);
+        Assert.Equal(setup.PaymentId, authorisation.PaymentId);
+    }
+
+    [Fact]
     public async Task StaleIndeterminateOutcomeAfterAuthorisedTruthDoesNotDowngradeConfirmedOrder()
     {
         var cancellationToken =
@@ -848,6 +1018,16 @@ public sealed class OrderPlacementPaymentOutcomeTests
         Assert.Equal(
             OrderStatus.Confirmed,
             order.Status);
+
+        var authorisation =
+            await ReadPaymentAuthorisationAsync(
+                connectionString,
+                setup.OrderId,
+                cancellationToken);
+
+        Assert.NotNull(authorisation);
+        Assert.Equal(PaymentAuthorisationOutcome.Authorised, authorisation.Outcome);
+        Assert.Equal(now.AddSeconds(25), authorisation.OutcomeAtUtc);
     }
 
     private static OrderingInboundMessageConsumer CreateConsumer(
@@ -994,6 +1174,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
         return new PaymentSetup(
             orderId,
             paymentRequestId,
+            Guid.NewGuid(),
             1399.98m,
             "GBP",
             reservations);
@@ -1011,7 +1192,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 new PaymentAuthorisedV1(
                     setup.PaymentRequestId,
                     setup.OrderId,
-                    Guid.NewGuid(),
+                    setup.PaymentId,
                     setup.Amount,
                     setup.Currency,
                     "sim-auth-001",
@@ -1042,7 +1223,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
                     setup.PaymentRequestId,
                     setup.OrderId,
                     declined
-                        ? Guid.NewGuid()
+                        ? setup.PaymentId
                         : null,
                     setup.Amount,
                     setup.Currency,
@@ -1074,7 +1255,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 new PaymentAuthorisationIndeterminateV1(
                     setup.PaymentRequestId,
                     setup.OrderId,
-                    Guid.NewGuid(),
+                    setup.PaymentId,
                     setup.Amount,
                     setup.Currency,
                     ProviderReference: null,
@@ -1098,7 +1279,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
                 new PaymentAuthorisationNeedsAttentionV1(
                     setup.PaymentRequestId,
                     setup.OrderId,
-                    Guid.NewGuid(),
+                    setup.PaymentId,
                     setup.Amount,
                     setup.Currency,
                     ProviderReference: null,
@@ -1358,6 +1539,21 @@ public sealed class OrderPlacementPaymentOutcomeTests
         return releases;
     }
 
+    private static async Task<OrderPaymentAuthorisation?> ReadPaymentAuthorisationAsync(
+        string connectionString,
+        Guid orderId,
+        CancellationToken cancellationToken)
+    {
+        await using var dbContext =
+            CreateDbContext(
+                connectionString);
+
+        return await new EfOrderPaymentAuthorisationRepository(dbContext)
+            .GetByOrderIdAsync(
+                new OrderId(orderId),
+                cancellationToken);
+    }
+
     private static async Task<OrderPlacementProcess> ReadProcessAsync(
         string connectionString,
         Guid orderId,
@@ -1446,6 +1642,7 @@ public sealed class OrderPlacementPaymentOutcomeTests
     private sealed record PaymentSetup(
         Guid OrderId,
         Guid PaymentRequestId,
+        Guid PaymentId,
         decimal Amount,
         string Currency,
         IReadOnlyList<ReservationSetup> Reservations);

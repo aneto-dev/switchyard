@@ -22,6 +22,7 @@ Implemented so far:
 - real PostgreSQL persistence coverage
 - HTTP endpoints for creating and reading orders
 - development-only Operations order list/detail over Ordering-owned placement state
+- Ordering-side projection of payment authorisation outcomes for the Operations order detail
 - idempotent order acceptance backed by PostgreSQL
 - Inventory stock and reservation domain model
 - durable reservation request idempotency
@@ -245,7 +246,7 @@ Database migrations remain explicit deployment work. The API does not migrate th
 
 ## Operations order view
 
-The first v0.8 slice gives operators a read-only view of orders and where each one is in the placement workflow. It reads Ordering-owned data only; payment, fulfilment and return state will come through a later operations projection.
+The first v0.8 slice gives operators a read-only view of orders and where each one is in the placement workflow. It reads Ordering-owned data only.
 
 ```text
 GET /api/operations/orders?status=Pending&orderNumber=SW-00100000&limit=25
@@ -253,6 +254,8 @@ GET /api/operations/orders/{orderId}
 ```
 
 `status`, `orderNumber` and `limit` (1-100, default 25) are optional. The list is newest first and includes the placement stage; the detail adds each line's reservation state, reservation ID and expiry.
+
+The detail also shows the latest payment authorisation outcome Payments reported. Ordering already consumes those outcomes to drive placement, so it records the payment ID, provider reference, reason and reconciliation attempts in `ordering.order_payment_authorisations` within the same inbox transaction. Outcomes only move forward (indeterminate, then needs attention, then authorised or failed), so stale or replayed messages cannot overwrite a later outcome, and a conflicting payment identity or terminal outcome is dead-lettered. Payment capture and refund state are not projected yet.
 
 These endpoints have no authentication yet, so the API only maps them in the `Development` environment. Operations roles from ADR-0004 arrive with the v0.9 security milestone.
 

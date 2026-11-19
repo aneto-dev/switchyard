@@ -40,6 +40,7 @@ All notable Switchyard changes will be recorded here.
 - Ordering compensation completion after verified Inventory release or expiry outcomes.
 - Ordering reservation-validity gating before payment authorisation, with persisted expiry deadlines, legacy-safe schema evolution and earliest-deadline propagation on payment commands.
 - Development-only Operations order view: recent-order list with status filter and order-number lookup, order detail with placement stage and per-line reservation outcomes, backed by Ordering-owned queries.
+- Ordering-side projection of payment authorisation outcomes (authorised, failed, indeterminate, needs attention), recorded with the placement transition and shown on the Operations order detail.
 
 ## [0.7.0] - 2026-11-19
 

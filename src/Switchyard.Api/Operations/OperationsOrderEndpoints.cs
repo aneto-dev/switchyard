@@ -102,6 +102,20 @@ public static class OperationsOrderEndpoints
                 order.Placement.UpdatedAtUtc,
                 order.Placement.PaymentAuthorisationRequestId);
 
+        var payment = order.Payment is null
+            ? null
+            : new OperationsOrderPaymentResponse(
+                order.Payment.Outcome.ToString(),
+                order.Payment.RequestId,
+                order.Payment.PaymentId,
+                order.Payment.Amount,
+                order.Payment.Currency,
+                order.Payment.ProviderReference,
+                order.Payment.Reason,
+                order.Payment.ReconciliationAttemptCount,
+                order.Payment.OutcomeAtUtc,
+                order.Payment.RecordedAtUtc);
+
         var lines = order.Lines.Select(line => new OperationsOrderLineResponse(
                                     line.OrderLineId,
                                     line.SkuCode,
@@ -124,6 +138,7 @@ public static class OperationsOrderEndpoints
             order.Currency,
             order.CreatedAtUtc,
             placement,
+            payment,
             lines));
     }
 }
