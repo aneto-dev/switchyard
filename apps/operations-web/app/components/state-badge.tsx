@@ -1,9 +1,15 @@
 import { humanise } from "@/lib/format";
 
 // States an operator should look at, as opposed to ones the workflow is still progressing through.
-const attentionStates = new Set(["NeedsAttention", "PaymentIndeterminate", "CompensatingInventory", "AwaitingRelease"]);
+const attentionStates = new Set([
+  "NeedsAttention",
+  "PaymentIndeterminate",
+  "Indeterminate",
+  "CompensatingInventory",
+  "AwaitingRelease",
+]);
 const failedStates = new Set(["Failed", "Rejected", "Expired"]);
-const settledStates = new Set(["Confirmed", "Reserved", "Released"]);
+const settledStates = new Set(["Confirmed", "Authorised", "Reserved", "Released"]);
 
 function toneFor(state: string): string {
   if (attentionStates.has(state)) {

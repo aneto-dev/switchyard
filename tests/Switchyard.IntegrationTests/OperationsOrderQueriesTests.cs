@@ -105,6 +105,8 @@ public sealed class OperationsOrderQueriesTests
         }
 
         var reservationId = Guid.NewGuid();
+        var paymentRequestId = Guid.NewGuid();
+        var paymentId = Guid.NewGuid();
         var expiresAtUtc = BaseTime.AddMinutes(15);
 
         // First line was reserved and is now awaiting release; the second was rejected.
@@ -117,7 +119,13 @@ public sealed class OperationsOrderQueriesTests
             $"WHERE order_line_id = '{lineIds[0]}';" +
             $"UPDATE ordering.order_placement_lines SET state = {(int)OrderPlacementLineState.Rejected} " +
             $"WHERE order_line_id = '{lineIds[1]}';" +
-            $"DELETE FROM ordering.order_placement_processes WHERE order_id = '{legacy.OrderId}';",
+            $"DELETE FROM ordering.order_placement_processes WHERE order_id = '{legacy.OrderId}';" +
+            "INSERT INTO ordering.order_payment_authorisations " +
+            "(order_id, request_id, payment_id, outcome, amount, currency, provider_reference, reason, " +
+            "reconciliation_attempt_count, outcome_at_utc, recorded_at_utc) VALUES " +
+            $"('{order.OrderId}', '{paymentRequestId}', '{paymentId}', {(int)PaymentAuthorisationOutcome.Failed}, " +
+            $"1399.98, 'GBP', 'sim-decline-001', 'Declined', NULL, '{BaseTime.AddSeconds(25):O}', " +
+            $"'{BaseTime.AddSeconds(30):O}');",
             cancellationToken);
 
         await using var dbContext = CreateDbContext(connectionString);
@@ -134,6 +142,17 @@ public sealed class OperationsOrderQueriesTests
         Assert.Equal(OrderPlacementState.CompensatingInventory, detail.Placement.State);
         Assert.Equal(BaseTime, detail.Placement.StartedAtUtc);
         Assert.Equal(BaseTime.AddSeconds(30), detail.Placement.UpdatedAtUtc);
+
+        Assert.NotNull(detail.Payment);
+        Assert.Equal(PaymentAuthorisationOutcome.Failed, detail.Payment.Outcome);
+        Assert.Equal(paymentRequestId, detail.Payment.RequestId);
+        Assert.Equal(paymentId, detail.Payment.PaymentId);
+        Assert.Equal(1399.98m, detail.Payment.Amount);
+        Assert.Equal("sim-decline-001", detail.Payment.ProviderReference);
+        Assert.Equal("Declined", detail.Payment.Reason);
+        Assert.Null(detail.Payment.ReconciliationAttemptCount);
+        Assert.Equal(BaseTime.AddSeconds(25), detail.Payment.OutcomeAtUtc);
+        Assert.Equal(BaseTime.AddSeconds(30), detail.Payment.RecordedAtUtc);
 
         Assert.Equal(lineIds, detail.Lines.Select(line => line.OrderLineId));
 
@@ -155,6 +174,7 @@ public sealed class OperationsOrderQueriesTests
 
         Assert.NotNull(legacyDetail);
         Assert.Null(legacyDetail.Placement);
+        Assert.Null(legacyDetail.Payment);
         Assert.All(legacyDetail.Lines, line =>
         {
             Assert.Null(line.ReservationState);

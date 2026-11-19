@@ -11,6 +11,7 @@ public sealed record OperationsOrderDetail(
     string Currency,
     DateTimeOffset CreatedAtUtc,
     OperationsOrderPlacement? Placement,
+    OperationsOrderPayment? Payment,
     IReadOnlyList<OperationsOrderLine> Lines);
 
 public sealed record OperationsOrderPlacement(
@@ -18,6 +19,20 @@ public sealed record OperationsOrderPlacement(
     DateTimeOffset StartedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     Guid? PaymentAuthorisationRequestId);
+
+// The latest authorisation outcome Payments reported, as recorded by Ordering. Null until
+// Payments has reported one.
+public sealed record OperationsOrderPayment(
+    PaymentAuthorisationOutcome Outcome,
+    Guid RequestId,
+    Guid? PaymentId,
+    decimal Amount,
+    string Currency,
+    string? ProviderReference,
+    string? Reason,
+    int? ReconciliationAttemptCount,
+    DateTimeOffset OutcomeAtUtc,
+    DateTimeOffset RecordedAtUtc);
 
 // Reservation fields are null when the line has no placement record or Inventory has not
 // reserved stock for it yet.

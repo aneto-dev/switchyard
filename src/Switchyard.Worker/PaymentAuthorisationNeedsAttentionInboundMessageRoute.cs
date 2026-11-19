@@ -59,6 +59,8 @@ public sealed class PaymentAuthorisationNeedsAttentionInboundMessageRoute :
                     dbContext),
                 new EfOrderPlacementProcessRepository(
                     dbContext),
+                new EfOrderPaymentAuthorisationRepository(
+                    dbContext),
                 new EfOrderingOutboxStore(
                     dbContext),
                 _timeProvider);

@@ -55,6 +55,7 @@ public sealed class PaymentAuthorisationFailedInboundMessageRoute :
             new OrderingPaymentOutcomeHandler(
                 new EfOrderRepository(dbContext),
                 new EfOrderPlacementProcessRepository(dbContext),
+                new EfOrderPaymentAuthorisationRepository(dbContext),
                 new EfOrderingOutboxStore(dbContext),
                 _timeProvider);
 

@@ -24,6 +24,21 @@ export type OrderPlacement = {
   paymentAuthorisationRequestId: string | null;
 };
 
+export type PaymentAuthorisationOutcome = "Indeterminate" | "NeedsAttention" | "Authorised" | "Failed";
+
+export type OrderPayment = {
+  outcome: PaymentAuthorisationOutcome;
+  requestId: string;
+  paymentId: string | null;
+  amount: number;
+  currency: string;
+  providerReference: string | null;
+  reason: string | null;
+  reconciliationAttemptCount: number | null;
+  outcomeAtUtc: string;
+  recordedAtUtc: string;
+};
+
 export type OrderLine = {
   orderLineId: string;
   skuCode: string;
@@ -46,6 +61,7 @@ export type OrderDetail = {
   currency: string;
   createdAtUtc: string;
   placement: OrderPlacement | null;
+  payment: OrderPayment | null;
   lines: OrderLine[];
 };
 
