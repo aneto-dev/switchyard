@@ -14,8 +14,6 @@ internal sealed class ReturnRefundRecord
     public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
-namespace Switchyard.Returns.Infrastructure.Persistence;
-
 internal sealed class ReturnCommercialSnapshotRecord
 {
     public Guid OrderId { get; set; }
