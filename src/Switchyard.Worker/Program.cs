@@ -431,6 +431,15 @@ builder.Services.AddSingleton<
 builder.Services.AddSingleton<
     IReturnsInboundMessageRoute,
     OrderCommercialSnapshotReturnsInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IReturnsInboundMessageRoute,
+    PaymentRefundedReturnsInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IReturnsInboundMessageRoute,
+    PaymentRefundIndeterminateReturnsInboundMessageRoute>();
+builder.Services.AddSingleton<
+    IReturnsInboundMessageRoute,
+    PaymentRefundNotAppliedReturnsInboundMessageRoute>();
 
 builder.Services.AddSingleton<ServiceBusSubscriptionEndpoint>(
     provider =>

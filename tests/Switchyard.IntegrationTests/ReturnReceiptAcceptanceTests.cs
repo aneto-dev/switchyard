@@ -339,6 +339,8 @@ public sealed class ReturnReceiptAcceptanceTests
                     dbContext),
                 new EfReturnsOutboxStore(
                     dbContext),
+                new EfReturnRefundRepository(
+                    dbContext),
                 new EfReturnsUnitOfWork(
                     dbContext));
 

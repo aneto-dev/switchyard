@@ -88,6 +88,8 @@ Implemented so far:
 - definite provider refunds resolve to Succeeded and publish `payments.event.refunded.v1`
 - unknown provider outcomes resolve to Indeterminate and are reconciled without a second blind refund call
 - reconciliation can resolve an indeterminate refund to Succeeded or NotApplied and publishes the corresponding final outcome
+- Returns keeps a local per-receipt refund projection for customer and operations views
+- refund outcome events advance that projection without cross-reading Payments persistence, while stale indeterminate delivery cannot downgrade a terminal outcome
 - first shipment dispatch atomically stages the one full-payment capture command through Fulfilment's transactional outbox
 - Payments consumes capture commands through its existing provider-idempotent settlement workflow
 - Payments publishes captured, indeterminate and not-applied capture outcomes through its durable outbox

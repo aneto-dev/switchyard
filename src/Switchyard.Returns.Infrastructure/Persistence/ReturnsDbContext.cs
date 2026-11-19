@@ -9,6 +9,9 @@ public sealed class ReturnsDbContext : DbContext
     {
     }
 
+    internal DbSet<ReturnRefundRecord> ReturnRefunds =>
+        Set<ReturnRefundRecord>();
+
     internal DbSet<ReturnCommercialSnapshotRecord> CommercialSnapshots =>
         Set<ReturnCommercialSnapshotRecord>();
 
@@ -47,6 +50,90 @@ public sealed class ReturnsDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        var refund =
+            modelBuilder.Entity<ReturnRefundRecord>();
+
+        refund.ToTable(
+            "return_refunds",
+            "returns",
+            table =>
+            {
+                table.HasCheckConstraint(
+                    "ck_returns_refund_amount",
+                    "amount > 0");
+                table.HasCheckConstraint(
+                    "ck_returns_refund_currency",
+                    "currency ~ '^[A-Z]{3}$'");
+                table.HasCheckConstraint(
+                    "ck_returns_refund_status",
+                    "status IN (0, 1, 2, 3)");
+                table.HasCheckConstraint(
+                    "ck_returns_refund_provider_reference",
+                    "provider_reference IS NULL OR btrim(provider_reference) <> ''");
+                table.HasCheckConstraint(
+                    "ck_returns_refund_updated_time",
+                    "updated_at_utc >= requested_at_utc");
+            });
+
+        refund.HasKey(
+                  record => new
+                  {
+                      record.OrderId,
+                      record.ReturnReceiptId
+                  })
+              .HasName(
+                  "pk_returns_return_refunds");
+
+        refund.Property(record => record.OrderId)
+              .HasColumnName("order_id");
+
+        refund.Property(record => record.ReturnReceiptId)
+              .HasColumnName("return_receipt_id");
+
+        refund.Property(record => record.ReturnRequestId)
+              .HasColumnName("return_request_id");
+
+        refund.Property(record => record.PaymentId)
+              .HasColumnName("payment_id");
+
+        refund.Property(record => record.Amount)
+              .HasColumnName("amount")
+              .HasPrecision(18, 2);
+
+        refund.Property(record => record.Currency)
+              .HasColumnName("currency")
+              .HasMaxLength(3)
+              .IsRequired();
+
+        refund.Property(record => record.Status)
+              .HasColumnName("status");
+
+        refund.Property(record => record.ProviderReference)
+              .HasColumnName("provider_reference")
+              .HasMaxLength(100);
+
+        refund.Property(record => record.RequestedAtUtc)
+              .HasColumnName("requested_at_utc");
+
+        refund.Property(record => record.UpdatedAtUtc)
+              .HasColumnName("updated_at_utc");
+
+        refund.HasOne<ReturnReceiptRecord>()
+              .WithOne()
+              .HasForeignKey<ReturnRefundRecord>(
+                  record => new
+                  {
+                      record.OrderId,
+                      record.ReturnReceiptId
+                  })
+              .OnDelete(DeleteBehavior.Cascade)
+              .HasConstraintName(
+                  "fk_returns_refund_receipt");
+
+        refund.HasIndex(record => record.PaymentId)
+              .HasDatabaseName(
+                  "ix_returns_refund_payment");
+
         var commercial =
             modelBuilder.Entity<ReturnCommercialSnapshotRecord>();
 
