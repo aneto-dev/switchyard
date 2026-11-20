@@ -44,6 +44,10 @@ All notable Switchyard changes will be recorded here.
 - Fulfilment state on the Operations order detail: preparation, payment capture, shipments and cancellations, read from Fulfilment's own tables.
 - Returns and refunds on the Operations order detail: per-line returned quantities, return requests, receipts and refund status, read from Returns' own tables.
 
+### Fixed
+
+- A duplicate payment authorisation request that committed between the store's decision and order checks was rejected as a conflict instead of being replayed.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

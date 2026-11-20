@@ -1,8 +1,11 @@
 using System.Globalization;
+using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Npgsql;
 using Switchyard.Payments.Application.Authorisation;
 using Switchyard.Payments.Domain.Authorisation;
+using Switchyard.Payments.Domain.Payments;
 using Switchyard.Payments.Infrastructure.Persistence;
 using Switchyard.Payments.Infrastructure.ProviderSimulation;
 using Testcontainers.PostgreSql;
@@ -269,6 +272,51 @@ public sealed class PaymentAuthorisationTests
                 cancellationToken));
     }
 
+    [Fact]
+    public async Task DuplicateCommittedBetweenDecisionAndIntentChecksIsReplayedNotRejected()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        await using var postgres = await StartPostgresAsync(cancellationToken);
+        await ApplyMigrationsAsync(postgres.GetConnectionString(), cancellationToken);
+
+        var request = new PaymentAuthorisationRequest(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            new PaymentAmount(499m, "GBP"),
+            new DateTimeOffset(2026, 11, 20, 9, 0, 0, TimeSpan.Zero));
+
+        await using var duplicateContext = CreateDbContext(postgres.GetConnectionString());
+        var duplicateStore = new EfPaymentAuthorisationStore(duplicateContext);
+        PaymentAuthorisationDecision? duplicateDecision = null;
+
+        // Commit the duplicate after this store has found no decision for the request but
+        // before it looks for an existing intent on the order: the window CI hit.
+        var interceptor = new BeforeOrderIntentLookupInterceptor(
+            async token => duplicateDecision = await duplicateStore.BeginAsync(request, token));
+
+        var options = new DbContextOptionsBuilder<PaymentsDbContext>()
+            .UseNpgsql(postgres.GetConnectionString())
+            .AddInterceptors(interceptor)
+            .Options;
+
+        await using var racingContext = new PaymentsDbContext(options);
+        var racingStore = new EfPaymentAuthorisationStore(racingContext);
+
+        var decision = await racingStore.BeginAsync(request, cancellationToken);
+
+        Assert.True(interceptor.Fired);
+        Assert.NotNull(duplicateDecision);
+        Assert.False(duplicateDecision.Replayed);
+        Assert.True(decision.Replayed);
+        Assert.Equal(duplicateDecision.Intent.Id, decision.Intent.Id);
+        Assert.Equal(
+            1,
+            await CountRowsAsync(postgres.GetConnectionString(), "payment_intents", cancellationToken));
+        Assert.Equal(
+            1,
+            await CountRowsAsync(postgres.GetConnectionString(), "authorisation_attempts", cancellationToken));
+    }
+
     private static AuthorisePaymentHandler CreateHandler(
         PaymentsDbContext dbContext,
         SimulatedPaymentAuthorisationProvider provider,
@@ -379,5 +427,35 @@ public sealed class PaymentAuthorisationTests
         }
 
         public override DateTimeOffset GetUtcNow() => _utcNow;
+    }
+
+    private sealed class BeforeOrderIntentLookupInterceptor : DbCommandInterceptor
+    {
+        private readonly Func<CancellationToken, Task> _beforeLookup;
+
+        public BeforeOrderIntentLookupInterceptor(Func<CancellationToken, Task> beforeLookup)
+        {
+            _beforeLookup = beforeLookup;
+        }
+
+        public bool Fired { get; private set; }
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            // The order-intent lookup is the only intent query that does not join attempts.
+            if (!Fired &&
+                command.CommandText.Contains("payment_intents", StringComparison.Ordinal) &&
+                !command.CommandText.Contains("authorisation_attempts", StringComparison.Ordinal))
+            {
+                Fired = true;
+                await _beforeLookup(cancellationToken);
+            }
+
+            return result;
+        }
     }
 }

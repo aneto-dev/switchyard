@@ -35,6 +35,15 @@ public sealed class EfPaymentAuthorisationStore : IPaymentAuthorisationStore
 
         if (existingIntent is not null)
         {
+            // A duplicate of this request may have committed after the decision lookup above.
+            // Intent and attempt commit together, so a second lookup finds its decision.
+            var concurrent = await GetExistingDecisionAsync(request, cancellationToken);
+
+            if (concurrent is not null)
+            {
+                return concurrent;
+            }
+
             throw new PaymentAuthorisationConflictException(request.RequestId, request.OrderId);
         }
 
