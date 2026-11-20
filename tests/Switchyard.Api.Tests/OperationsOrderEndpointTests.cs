@@ -4,11 +4,13 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Switchyard.Api.Operations;
 using Switchyard.Api.Ordering;
 using Switchyard.Fulfilment.Application.Requests;
 using Switchyard.Fulfilment.Infrastructure.Persistence;
 using Switchyard.Ordering.Infrastructure.Persistence;
+using Switchyard.Returns.Infrastructure.Persistence;
 using Testcontainers.PostgreSql;
 
 namespace Switchyard.Api.Tests;
@@ -139,6 +141,66 @@ public sealed class OperationsOrderEndpointTests
         Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task ReadsReturnsThroughOperationsBoundary()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        await using var postgres = await StartPostgresAsync(cancellationToken);
+        await ApplyMigrationsAsync(postgres.GetConnectionString(), cancellationToken);
+
+        var returnsOptions = new DbContextOptionsBuilder<ReturnsDbContext>()
+            .UseNpgsql(postgres.GetConnectionString())
+            .Options;
+
+        await using (var returns = new ReturnsDbContext(returnsOptions))
+        {
+            await returns.Database.MigrateAsync(cancellationToken);
+        }
+
+        var orderId = Guid.NewGuid();
+        var lineId = Guid.NewGuid();
+
+        await using (var connection = new NpgsqlConnection(postgres.GetConnectionString()))
+        {
+            await connection.OpenAsync(cancellationToken);
+
+            await using var command = new NpgsqlCommand(
+                """
+                INSERT INTO returns.return_eligibility (order_id, order_number) VALUES (@order_id, 'SW-00100095');
+                INSERT INTO returns.return_eligibility_lines
+                    (order_id, order_line_id, delivered_quantity, authorised_return_quantity, returned_quantity)
+                VALUES (@order_id, @line_id, 1, 1, 0);
+                """,
+                connection);
+
+            command.Parameters.AddWithValue("order_id", orderId);
+            command.Parameters.AddWithValue("line_id", lineId);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        using var application = CreateApplication(postgres.GetConnectionString(), "Development");
+        using var client = application.CreateClient();
+
+        var view = await client.GetFromJsonAsync<ReturnsView>(
+            $"/api/operations/orders/{orderId:D}/returns", cancellationToken);
+
+        Assert.NotNull(view);
+        Assert.Equal(orderId, view.OrderId);
+        var line = Assert.Single(view.Lines);
+        Assert.Equal(lineId, line.OrderLineId);
+        Assert.Equal(1, line.DeliveredQuantity);
+        Assert.Equal(1, line.AuthorisedReturnQuantity);
+        Assert.Equal(0, line.ReturnedQuantity);
+        Assert.Empty(view.Requests);
+
+        // Orders with no delivered shipment have nothing in Returns yet.
+        using var missingResponse = await client.GetAsync(
+            $"/api/operations/orders/{Guid.NewGuid():D}/returns", cancellationToken);
+
+        Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
     [Theory]
     [InlineData("status=Shipped", "status")]
     [InlineData("status=1", "status")]
@@ -176,10 +238,13 @@ public sealed class OperationsOrderEndpointTests
             $"/api/operations/orders/{Guid.NewGuid():D}", cancellationToken);
         using var fulfilmentResponse = await client.GetAsync(
             $"/api/operations/orders/{Guid.NewGuid():D}/fulfilment", cancellationToken);
+        using var returnsResponse = await client.GetAsync(
+            $"/api/operations/orders/{Guid.NewGuid():D}/returns", cancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, listResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, detailResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, fulfilmentResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, returnsResponse.StatusCode);
     }
 
     private const string UnusedConnectionString =
@@ -243,6 +308,8 @@ public sealed class OperationsOrderEndpointTests
                         options => options.ConnectionString = connectionString);
                     services.PostConfigure<FulfilmentDatabaseOptions>(
                         options => options.ConnectionString = connectionString);
+                    services.PostConfigure<ReturnsDatabaseOptions>(
+                        options => options.ConnectionString = connectionString);
                 });
             });
     }
@@ -299,4 +366,21 @@ public sealed class OperationsOrderEndpointTests
 
     private sealed record FulfilmentCancellation(
         Guid CancellationId, string Outcome, string? RejectionReason, int Quantity, DateTimeOffset RequestedAtUtc);
+
+    private sealed record ReturnsView(
+        Guid OrderId, IReadOnlyList<ReturnLine> Lines, IReadOnlyList<ReturnRequest> Requests);
+
+    private sealed record ReturnLine(
+        Guid OrderLineId, int DeliveredQuantity, int AuthorisedReturnQuantity, int ReturnedQuantity);
+
+    private sealed record ReturnRequest(
+        Guid ReturnRequestId, string Status, int Quantity, DateTimeOffset RequestedAtUtc,
+        IReadOnlyList<ReturnReceipt> Receipts);
+
+    private sealed record ReturnReceipt(
+        Guid ReturnReceiptId, int Quantity, DateTimeOffset ReceivedAtUtc, ReturnRefund? Refund);
+
+    private sealed record ReturnRefund(
+        string Status, decimal Amount, string Currency, string? ProviderReference, DateTimeOffset RequestedAtUtc,
+        DateTimeOffset UpdatedAtUtc);
 }

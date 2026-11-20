@@ -13,6 +13,8 @@ using Switchyard.Ordering.Application.Operations;
 using Switchyard.Ordering.Application.Orders;
 using Switchyard.Ordering.Application.Ports;
 using Switchyard.Ordering.Infrastructure.Persistence;
+using Switchyard.Returns.Application.Operations;
+using Switchyard.Returns.Infrastructure.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,8 +39,8 @@ builder.Services.AddDbContext<OrderingDbContext>((serviceProvider, options) =>
     options.UseNpgsql(databaseOptions.ConnectionString);
 });
 
-// Fulfilment is only read by the development-only operations endpoints, so its connection
-// string is resolved on first use rather than validated at start-up.
+// Fulfilment and Returns are only read by the development-only operations endpoints, so their
+// connection strings are resolved on first use rather than validated at start-up.
 builder.Services.AddOptions<FulfilmentDatabaseOptions>()
                 .Configure<IConfiguration>((options, configuration) =>
                 {
@@ -58,6 +60,25 @@ builder.Services.AddDbContext<FulfilmentDbContext>((serviceProvider, options) =>
     options.UseNpgsql(databaseOptions.ConnectionString);
 });
 
+builder.Services.AddOptions<ReturnsDatabaseOptions>()
+                .Configure<IConfiguration>((options, configuration) =>
+                {
+                    options.ConnectionString = configuration.GetConnectionString(ReturnsDatabaseOptions.ConnectionStringName)
+                                               ?? string.Empty;
+                });
+
+builder.Services.AddDbContext<ReturnsDbContext>((serviceProvider, options) =>
+{
+    var databaseOptions = serviceProvider.GetRequiredService<IOptions<ReturnsDatabaseOptions>>().Value;
+
+    if (string.IsNullOrWhiteSpace(databaseOptions.ConnectionString))
+    {
+        throw new InvalidOperationException("Connection string 'Returns' is required for operations endpoints.");
+    }
+
+    options.UseNpgsql(databaseOptions.ConnectionString);
+});
+
 builder.Services.AddScoped<IOrderRepository, EfOrderRepository>();
 builder.Services.AddScoped<IOrderRequestRepository, EfOrderRequestRepository>();
 builder.Services.AddScoped<IOrderPlacementProcessRepository, EfOrderPlacementProcessRepository>();
@@ -68,6 +89,7 @@ builder.Services.AddScoped<CreatePendingOrderHandler>();
 builder.Services.AddScoped<GetOrderHandler>();
 builder.Services.AddScoped<IOperationsOrderQueries, EfOperationsOrderQueries>();
 builder.Services.AddScoped<IOperationsFulfilmentQueries, EfOperationsFulfilmentQueries>();
+builder.Services.AddScoped<IOperationsReturnsQueries, EfOperationsReturnsQueries>();
 builder.Services.AddSingleton<TimeProvider>(TimeProvider.System);
 
 var app = builder.Build();

@@ -42,6 +42,7 @@ All notable Switchyard changes will be recorded here.
 - Development-only Operations order view: recent-order list with status filter and order-number lookup, order detail with placement stage and per-line reservation outcomes, backed by Ordering-owned queries.
 - Ordering-side projection of payment authorisation outcomes (authorised, failed, indeterminate, needs attention), recorded with the placement transition and shown on the Operations order detail.
 - Fulfilment state on the Operations order detail: preparation, payment capture, shipments and cancellations, read from Fulfilment's own tables.
+- Returns and refunds on the Operations order detail: per-line returned quantities, return requests, receipts and refund status, read from Returns' own tables.
 
 ## [0.7.0] - 2026-11-19
 

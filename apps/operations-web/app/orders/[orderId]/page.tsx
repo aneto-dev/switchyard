@@ -4,8 +4,9 @@ import { notFound } from "next/navigation";
 import { Field, Identifier } from "@/app/components/detail-fields";
 import { StateBadge } from "@/app/components/state-badge";
 import { formatDateTime, formatMoney, humanise } from "@/lib/format";
-import { getOrder, getOrderFulfilment } from "@/lib/operations-api";
+import { getOrder, getOrderFulfilment, getOrderReturns } from "@/lib/operations-api";
 import { FulfilmentSection } from "./fulfilment-section";
+import { ReturnsSection } from "./returns-section";
 
 type Params = Promise<{ orderId: string }>;
 
@@ -21,7 +22,11 @@ export default async function OrderPage({ params }: { params: Params }) {
   }
 
   // Each context answers from its own data; fetching in parallel keeps the page to one round trip.
-  const [order, fulfilment] = await Promise.all([getOrder(orderId), getOrderFulfilment(orderId)]);
+  const [order, fulfilment, returns] = await Promise.all([
+    getOrder(orderId),
+    getOrderFulfilment(orderId),
+    getOrderReturns(orderId),
+  ]);
 
   if (!order) {
     notFound();
@@ -142,7 +147,7 @@ export default async function OrderPage({ params }: { params: Params }) {
 
       <FulfilmentSection fulfilment={fulfilment} />
 
-      <p className="text-xs text-[var(--muted)]">Return and refund state are not shown here yet.</p>
+      <ReturnsSection returns={returns} orderLines={order.lines} />
     </div>
   );
 }

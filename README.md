@@ -24,6 +24,7 @@ Implemented so far:
 - development-only Operations order list/detail over Ordering-owned placement state
 - Ordering-side projection of payment authorisation outcomes for the Operations order detail
 - Fulfilment, capture, shipment and cancellation state on the Operations order detail
+- return requests, receipts and refund status on the Operations order detail
 - idempotent order acceptance backed by PostgreSQL
 - Inventory stock and reservation domain model
 - durable reservation request idempotency
@@ -253,17 +254,18 @@ The first v0.8 slice gives operators a read-only view of orders and where each o
 GET /api/operations/orders?status=Pending&orderNumber=SW-00100000&limit=25
 GET /api/operations/orders/{orderId}
 GET /api/operations/orders/{orderId}/fulfilment
+GET /api/operations/orders/{orderId}/returns
 ```
 
 `status`, `orderNumber` and `limit` (1-100, default 25) are optional. The list is newest first and includes the placement stage; the detail adds each line's reservation state, reservation ID and expiry.
 
-The detail also shows the latest payment authorisation outcome Payments reported. Ordering already consumes those outcomes to drive placement, so it records the payment ID, provider reference, reason and reconciliation attempts in `ordering.order_payment_authorisations` within the same inbox transaction. Outcomes only move forward (indeterminate, then needs attention, then authorised or failed), so stale or replayed messages cannot overwrite a later outcome, and a conflicting payment identity or terminal outcome is dead-lettered. Refund state is not shown yet.
+The detail also shows the latest payment authorisation outcome Payments reported. Ordering already consumes those outcomes to drive placement, so it records the payment ID, provider reference, reason and reconciliation attempts in `ordering.order_payment_authorisations` within the same inbox transaction. Outcomes only move forward (indeterminate, then needs attention, then authorised or failed), so stale or replayed messages cannot overwrite a later outcome, and a conflicting payment identity or terminal outcome is dead-lettered. The fulfilment endpoint reads Fulfilment's own tables: preparation status, payment capture (Fulfilment already projects capture outcomes), shipments and cancellations. It returns 404 until Fulfilment has accepted the confirmed order. Each context answers from its own schema and the order page calls both endpoints in parallel. Copying this data into a separate operations projection would add a pipeline without new information while the contexts share one deployment.
 
-The fulfilment endpoint reads Fulfilment's own tables: preparation status, payment capture (Fulfilment already projects capture outcomes), shipments and cancellations. It returns 404 until Fulfilment has accepted the confirmed order. Each context answers from its own schema and the order page calls both endpoints in parallel. Copying this data into a separate operations projection would add a pipeline without new information while the contexts share one deployment.
+The returns endpoint follows the same pattern over Returns' own tables: delivered, awaiting-return and returned quantities per line, return requests with their receipts, and the refund status Returns has projected for each receipt. It returns 404 until a shipment for the order has been delivered.
 
 These endpoints have no authentication yet, so the API only maps them in the `Development` environment. Operations roles from ADR-0004 arrive with the v0.9 security milestone.
 
-`apps/operations-web` renders the list at `/orders` and the detail at `/orders/{orderId}`. It calls the API server-side using `SWITCHYARD_API_URL` (default `http://localhost:5000`). The API needs `ConnectionStrings:Ordering` and, for the fulfilment endpoint, `ConnectionStrings:Fulfilment`.
+`apps/operations-web` renders the list at `/orders` and the detail at `/orders/{orderId}`. It calls the API server-side using `SWITCHYARD_API_URL` (default `http://localhost:5000`). The API needs `ConnectionStrings:Ordering` plus `ConnectionStrings:Fulfilment` and `ConnectionStrings:Returns` for the fulfilment and returns endpoints.
 ## Verification
 
 Run the repository check with an ephemeral local PostgreSQL dependency:

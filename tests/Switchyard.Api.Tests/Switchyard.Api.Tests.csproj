@@ -16,5 +16,6 @@
     <ProjectReference Include="..\..\src\Switchyard.Api\Switchyard.Api.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Fulfilment.Infrastructure\Switchyard.Fulfilment.Infrastructure.csproj" />
     <ProjectReference Include="..\..\src\Switchyard.Ordering.Infrastructure\Switchyard.Ordering.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Switchyard.Returns.Infrastructure\Switchyard.Returns.Infrastructure.csproj" />
   </ItemGroup>
 </Project>
